@@ -9,6 +9,11 @@ pub fn build(b: *std.Build) void {
         .target = target,
     });
 
+    const parser_mod = b.addModule("parser", .{
+        .root_source_file = b.path("src/parser.zig"),
+        .target = target,
+    });
+
     const mod = b.addModule("pinet", .{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
@@ -16,7 +21,6 @@ pub fn build(b: *std.Build) void {
             .{ .name = "lexer", .module = lexer_mod },
         },
     });
-
 
     const exe = b.addExecutable(.{
         .name = "pinet",
@@ -46,13 +50,16 @@ pub fn build(b: *std.Build) void {
     const mod_tests = b.addTest(.{
         .root_module = mod,
     });
-
     const lexer_tests = b.addTest(.{
-       .root_module = lexer_mod,
+        .root_module = lexer_mod,
+    });
+    const parser_tests = b.addTest(.{
+        .root_module = parser_mod,
     });
 
     const run_mod_tests = b.addRunArtifact(mod_tests);
     const run_lexer_tests = b.addRunArtifact(lexer_tests);
+    const run_parser_tests = b.addRunArtifact(parser_tests);
 
     const exe_tests = b.addTest(.{
         .root_module = exe.root_module,
@@ -64,4 +71,5 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_mod_tests.step);
     test_step.dependOn(&run_exe_tests.step);
     test_step.dependOn(&run_lexer_tests.step);
+    test_step.dependOn(&run_parser_tests.step);
 }
