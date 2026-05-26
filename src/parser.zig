@@ -32,10 +32,16 @@ const ActivePair = struct {
     rhs: *Node(Object),
 };
 
+const Rule = struct {
+    lhs: *Node(Object),
+    rhs: *Node(Object),
+    pairs: []Node(ActivePair),
+};
+
 const Statement = union(enum) {
     free_stmt: []const Name,
     active_pair: ActivePair,
-    rule,
+    rule: Rule,
     const_stmt,
 };
 
@@ -164,6 +170,34 @@ const Parser = struct {
         }
     }
 
+    fn parsePairs(self: *Parser) ![]Node(ActivePair) {
+        var list = std.ArrayList(Node(ActivePair)).empty;
+        if (self.peek().tag == .semicolon) {
+            return list.items;
+        }
+
+        objtoken: switch (self.peek().tag) {
+            .identifier => {
+                const lhs = try self.parseObject();
+                const tilde = self.advance();
+                try self.expectTag(.tilde, tilde.tag);
+                const rhs = try self.parseObject();
+                const pair = ActivePair{ .lhs = lhs, .rhs = rhs };
+                const tslice = TokenSlice{ .start = lhs.tslice.start, .end = rhs.tslice.end };
+                try list.append(self.allocator, .{ .val = pair, .tslice = tslice });
+                if (self.peek().tag == .comma) {
+                    _ = self.advance();
+                    continue :objtoken self.peek().tag;
+                }
+            },
+            else => {
+                self.unexpected_token(.identifier, self.peek().tag);
+                return Error.ErrorDuringParsing;
+            },
+        }
+        return list.items;
+    }
+
     pub fn parseStmt(self: *Parser) !?*Node(Statement) {
         const tentry = self.peek();
         var ret = try self.allocator.create(Node(Statement));
@@ -184,7 +218,10 @@ const Parser = struct {
                 const connection = self.advance();
                 switch (connection.tag) {
                     .rule_symbol => {
-                        unreachable;
+                        const rhs = try self.parseObject();
+                        try self.expectTag(.fatrightarrow, self.advance().tag);
+                        const pairs = try self.parsePairs();
+                        ret.val = .{ .rule = .{ .lhs = lhs, .rhs = rhs, .pairs = pairs } };
                     },
                     .tilde => {
                         const rhs = try self.parseObject();
@@ -230,6 +267,37 @@ const Parser = struct {
         return list.items;
     }
 };
+
+test "rule stmt" {
+    var dalloc = std.heap.DebugAllocator(.{}).init;
+    defer dalloc.deinitWithoutLeakChecks();
+    const alloc = dalloc.allocator();
+    const program =
+        \\ Add(r, x) >< S(y) =>
+        \\   Add(w, x) ~ y,
+        \\   r ~ S(w);
+    ;
+    const tokens = try Lexer.tokenize(alloc, program);
+
+    var parser = Parser.init(tokens, alloc);
+    defer parser.deinit();
+
+    const stmt = parser.parseStmt();
+    if (parser.err) |err| {
+        std.debug.print("{s}\n", .{try err.messageLine(alloc, &parser)});
+    }
+
+    switch ((try stmt).?.val) {
+        .rule => |rule| {
+            try std.testing.expectEqualStrings("Add", rule.lhs.val.name);
+            try std.testing.expectEqualStrings("S", rule.rhs.val.name);
+            try std.testing.expectEqualStrings("y", rule.rhs.val.portlist.?[0].val.name);
+            try std.testing.expectEqualStrings("w", rule.pairs[0].val.lhs.val.portlist.?[0].val.name);
+            try std.testing.expectEqualStrings("w", rule.pairs[1].val.rhs.val.portlist.?[0].val.name);
+        },
+        else => unreachable,
+    }
+}
 
 test "active pair stmt" {
     var dalloc = std.heap.DebugAllocator(.{}).init;
