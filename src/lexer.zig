@@ -314,6 +314,17 @@ pub const Tokenizer = struct {
     }
 };
 
+pub fn tokenize(allocator: std.mem.Allocator, contents: [:0]const u8) ![]Token {
+    var arr: std.ArrayList(Token) = std.ArrayList(Token).empty;
+    var tokenizer = Tokenizer.init(contents);
+    var cur = tokenizer.next();
+    while (cur.tag != .eof) : (cur = tokenizer.next()) {
+        try arr.append(allocator, cur);
+    }
+    try arr.append(allocator, cur);
+    return arr.items;
+}
+
 const TokenizeTestError = error{
     NotEqual,
     BadLength,
