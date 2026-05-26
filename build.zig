@@ -23,9 +23,9 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .imports = &.{
-            .{ .name = "lexer", .module = lexer_mod },
-            .{ .name = "parser", .module = parser_mod },
-            .{ .name = "vm", .module = vm_mod },
+            // .{ .name = "lexer", .module = lexer_mod },
+            // .{ .name = "parser", .module = parser_mod },
+            // .{ .name = "vm", .module = vm_mod },
         },
     });
 

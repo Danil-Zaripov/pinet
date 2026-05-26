@@ -15,38 +15,39 @@ pub fn Node(comptime T: type) type {
     };
 }
 
-const Name = struct {
+pub const Name = struct {
     val: []const u8,
 };
 
 // (Name or Agent) or Agent(...)
 // Think whether all agents should be in form Z(...)
 // or to allow Z without ()
-const Object = struct {
+pub const Object = struct {
     name: []const u8,
     portlist: ?[]Node(Object),
 };
 
-const ActivePair = struct {
+pub const ActivePair = struct {
     lhs: Node(Object),
     rhs: Node(Object),
 };
 
-const Rule = struct {
+pub const Rule = struct {
     lhs: Node(Object),
     rhs: Node(Object),
     pairs: []Node(ActivePair),
 };
 
-const Statement = union(enum) {
+pub const Statement = union(enum) {
     free_stmt: []const Name,
     active_pair: ActivePair,
     rule: Rule,
+    print_stmt: Name,
     use_stmt, // TODO
     const_stmt,
 };
 
-const Program = struct {
+pub const Program = struct {
     statements: []Node(Statement),
 };
 
@@ -78,7 +79,7 @@ const Error = error{
     ErrorDuringParsing,
 };
 
-const Parser = struct {
+pub const Parser = struct {
     tokens: []const Token,
     index: usize,
     _arena: std.heap.ArenaAllocator,
@@ -143,7 +144,7 @@ const Parser = struct {
                 return Error.ErrorDuringParsing;
             },
         }
-        return list.items;
+        return try list.toOwnedSlice(self.allocator);
     }
 
     fn parseObject(self: *Parser) !Node(Object) {
@@ -201,7 +202,7 @@ const Parser = struct {
                 return Error.ErrorDuringParsing;
             },
         }
-        return list.items;
+        return list.toOwnedSlice(self.allocator);
     }
 
     pub fn parseStmt(self: *Parser) !?Node(Statement) {
@@ -222,17 +223,22 @@ const Parser = struct {
             },
             .identifier => {
                 const lhs = try self.parseObject();
-                const connection = self.advance();
+                const connection = self.peek();
                 switch (connection.tag) {
                     .rule_symbol => {
+                        _ = self.advance();
                         const rhs = try self.parseObject();
                         try self.expectTag(.fatrightarrow, self.advance().tag);
                         const pairs = try self.parsePairs();
                         ret.val = .{ .rule = .{ .lhs = lhs, .rhs = rhs, .pairs = pairs } };
                     },
                     .tilde => {
+                        _ = self.advance();
                         const rhs = try self.parseObject();
                         ret.val = .{ .active_pair = .{ .lhs = lhs, .rhs = rhs } };
+                    },
+                    .semicolon => {
+                        ret.val = .{ .print_stmt = .{ .val = lhs.val.name } };
                     },
                     else => {
                         self.err = .{ .pos = self.index - 1, .tag = .{ .ExpectedStatement = .{ .found = connection.tag } } };
@@ -259,15 +265,15 @@ const Parser = struct {
         return ret;
     }
 
-    pub fn parseProgram(self: *Parser) ![]Program {
-        var list = std.ArrayList(Node(Statement));
+    pub fn parseProgram(self: *Parser) !Program {
+        var list = try std.ArrayList(Node(Statement)).initCapacity(self.allocator, 20);
         var maybe_stmt = try self.parseStmt();
-        while (!self.reached_eof) : (maybe_stmt = try self.parseStmt) {
+        while (!self.reached_eof) : (maybe_stmt = try self.parseStmt()) {
             if (maybe_stmt) |stmt| {
-                list.append(self.allocator, stmt);
+                try list.append(self.allocator, stmt);
             }
         }
-        return list.items;
+        return .{ .statements = try list.toOwnedSlice(self.allocator) };
     }
 
     fn parseNameList(self: *Parser) ![]Name {
@@ -282,7 +288,7 @@ const Parser = struct {
             const t = self.advance();
             try list.append(self.allocator, .{ .val = t.content.? });
         }
-        return list.items;
+        return list.toOwnedSlice(self.allocator);
     }
 };
 

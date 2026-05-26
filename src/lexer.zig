@@ -229,7 +229,10 @@ pub const Tokenizer = struct {
                     result.tag = .string_literal;
                     continue :state .string_literal;
                 },
-                else => unreachable,
+                else => {
+                    std.debug.print("{c}", .{self.buffer[self.index]});
+                    unreachable;
+                },
             },
             .eq => switch (self.buffer[self.index]) {
                 '=' => {
@@ -322,7 +325,7 @@ pub fn tokenize(allocator: std.mem.Allocator, contents: [:0]const u8) ![]Token {
         try arr.append(allocator, cur);
     }
     try arr.append(allocator, cur);
-    return arr.items;
+    return arr.toOwnedSlice(allocator);
 }
 
 const TokenizeTestError = error{
