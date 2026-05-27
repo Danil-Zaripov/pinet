@@ -83,7 +83,7 @@ pub fn getAgentSymbolNested(vm: *const VirtualMachine, ag: *const Agent, stream:
     try stream.write(")", .{});
 }
 
-pub fn getAgentSymbol(vm: *const VirtualMachine, ag: *const Agent) ![:0]const u8 {
+pub fn getAgentSymbol(vm: *const VirtualMachine, ag: *const Agent) ![]const u8 {
     const name = vm.runtime.agent_id_map.findKey(ag.id);
     const max_agent_name_size = 128;
     var stream = try Types.BufferedStringStream.init(vm.gpa, max_agent_name_size);
@@ -105,7 +105,7 @@ pub fn getAgentSymbol(vm: *const VirtualMachine, ag: *const Agent) ![:0]const u8
             }
         }
     }
-    return @ptrCast(stream.buffer);
+    return stream.buffer;
 }
 
 pub fn tryPrint(vm: *const VirtualMachine, val: Value) !void {

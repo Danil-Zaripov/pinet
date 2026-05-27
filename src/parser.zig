@@ -82,19 +82,20 @@ const Error = error{
 pub const Parser = struct {
     tokens: []const Token,
     index: usize,
-    _arena: std.heap.ArenaAllocator,
+    arena: *std.heap.ArenaAllocator,
     allocator: std.mem.Allocator,
 
     err: ?ParserError,
 
     reached_eof: bool,
 
-    pub fn init(tokens: []const Token, gpa: std.mem.Allocator) Parser {
-        var arena = std.heap.ArenaAllocator.init(gpa);
+    pub fn init(tokens: []const Token, gpa: std.mem.Allocator) !Parser {
+        const arena = try gpa.create(std.heap.ArenaAllocator);
+        arena.* = std.heap.ArenaAllocator.init(gpa);
         return .{
             .tokens = tokens,
             .index = 0,
-            ._arena = arena,
+            .arena = arena,
             .allocator = arena.allocator(),
             .reached_eof = false,
             .err = null,
@@ -108,8 +109,9 @@ pub const Parser = struct {
         };
     }
 
-    pub fn deinit(self: *Parser) void {
-        self._arena.deinit();
+    pub fn deinit(self: *Parser, gpa: std.mem.Allocator) void {
+        self.arena.deinit();
+        gpa.destroy(self.arena);
     }
 
     fn peek(self: *Parser) Token {
