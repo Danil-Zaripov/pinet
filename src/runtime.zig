@@ -1,6 +1,6 @@
 const std = @import("std");
 const Types = @import("types.zig");
-
+const Instruction = @import("instruction.zig");
 // Runtime module
 // for anything shared in the vm
 
@@ -10,6 +10,7 @@ const Agent = Types.Agent;
 const Value = Types.Value;
 const Name = Types.Name;
 const Equation = Types.Equation;
+const RuleKey = Instruction.RuleKey;
 
 pub const IdCountingHashMap = struct {
     map: std.StringHashMap(Agent.Id),
@@ -36,8 +37,49 @@ pub const IdCountingHashMap = struct {
     }
 };
 
+pub const ArityMap = struct {
+    map: std.AutoHashMap(Agent.Id, Agent.Arity),
+
+    pub fn get(self: *ArityMap, id: Agent.Id, port_count: usize) !Agent.Arity {
+        if (self.map.get(id)) |arity| {
+            if (arity != @as(u8, @intCast(port_count))) {
+                return error.ArityMismatch;
+            }
+            return arity;
+        } else {
+            const arity: u8 = @intCast(port_count);
+            try self.map.put(id, arity);
+            return arity;
+        }
+    }
+    pub fn init(allocator: std.mem.Allocator) ArityMap {
+        return .{
+            .map = std.AutoHashMap(Agent.Id, Agent.Arity).init(allocator),
+        };
+    }
+};
+
+pub const RuleTable = struct {
+    map: std.AutoHashMap(RuleKey, []Instruction),
+
+    pub fn get(self: *RuleTable, ap: RuleKey) !struct { []Instruction, bool } {
+        if (self.map.get(ap)) |instrs| {
+            return .{ instrs, false };
+        } else if (self.map.get(.{ .lhs = ap.rhs, .rhs = ap.lhs })) |instrs| {
+            return .{ instrs, true };
+        } else {
+            return error.UnknownRule;
+        }
+    }
+    pub fn init(allocator: std.mem.Allocator) RuleTable {
+        return .{
+            .map = std.AutoHashMap(RuleKey, []Instruction).init(allocator),
+        };
+    }
+};
+
 agent_id_map: IdCountingHashMap,
-agent_arities: std.AutoHashMap(Agent.Id, Agent.Arity),
+agent_arities: ArityMap,
 associated_names: std.StringHashMap(?*Name),
 io: std.Io,
 threaded: *std.Io.Threaded,
@@ -47,6 +89,7 @@ allocator: std.mem.Allocator,
 equation_queue: std.Io.Queue(Equation) = undefined,
 // for singlethreaded prototype
 equation_deque: std.Deque(Equation) = undefined,
+rule_table: RuleTable,
 
 pub fn init(gpa: std.mem.Allocator) !Self {
     const arena = try gpa.create(std.heap.ArenaAllocator);
@@ -63,7 +106,8 @@ pub fn init(gpa: std.mem.Allocator) !Self {
         .associated_names = std.StringHashMap(?*Name).init(allocator),
         .equation_queue = std.Io.Queue(Equation).init(&.{}),
         .equation_deque = try std.Deque(Equation).initCapacity(allocator, 10),
-        .agent_arities = std.AutoHashMap(Agent.Id, Agent.Arity).init(allocator),
+        .agent_arities = ArityMap.init(allocator),
+        .rule_table = RuleTable.init(allocator),
         .threaded = threaded,
         .io = threaded.io(),
     };
