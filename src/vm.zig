@@ -71,7 +71,13 @@ pub fn getAgentSymbolNested(vm: *const VirtualMachine, ag: *const Agent, stream:
                 try stream.write(", ", .{});
             }
             switch (port) {
-                .name => {
+                .name => |wire| {
+                    if (wire.port) |wired_to| {
+                        if (wired_to == .agent) {
+                            try getAgentSymbolNested(vm, wired_to.agent, stream);
+                            continue;
+                        }
+                    }
                     try stream.write("<NAME>", .{});
                 },
                 .agent => |new_ag| {
@@ -88,7 +94,6 @@ pub fn getAgentSymbol(vm: *const VirtualMachine, ag: *const Agent) ![]const u8 {
     const max_agent_name_size = 128;
     var stream = try Types.BufferedStringStream.init(vm.gpa, max_agent_name_size);
     try stream.write("{s}(", .{name.?});
-    // TODO: Use custom object for the job
     {
         var idx: usize = 0;
         while (ag.ports[idx]) |port| : (idx += 1) {
@@ -96,7 +101,13 @@ pub fn getAgentSymbol(vm: *const VirtualMachine, ag: *const Agent) ![]const u8 {
                 try stream.write(", ", .{});
             }
             switch (port) {
-                .name => {
+                .name => |wire| {
+                    if (wire.port) |wired_to| {
+                        if (wired_to == .agent) {
+                            try getAgentSymbolNested(vm, wired_to.agent, &stream);
+                            continue;
+                        }
+                    }
                     try stream.write("<NAME>", .{});
                 },
                 .agent => |new_ag| {

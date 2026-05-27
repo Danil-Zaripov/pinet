@@ -1,6 +1,0 @@
-a ~ b;
-b ~ c;
-c ~ Hello(d);
-d ~ g;
-g ~ World();
-a;

@@ -5,7 +5,7 @@ const pinet = @import("pinet");
 
 pub fn main(init: std.process.Init) !void {
     const gpa = init.gpa;
-    const filepath = "./test.in";
+    const filepath = "./tests/recursive_names.in";
     var sthreaded = Io.Threaded.init_single_threaded;
     defer sthreaded.deinit();
     const io = sthreaded.io();
