@@ -1,85 +1,44 @@
 const std = @import("std");
 const AST = @import("parser.zig");
 const Lexer = @import("lexer.zig");
+const Types = @import("types.zig");
+const Runtime = @import("runtime.zig");
 
-const number_of_ports = 10;
+const Agent = Types.Agent;
+const Value = Types.Value;
+const Name = Types.Name;
+const Equation = Types.Equation;
 
-const Agent = struct {
-    id: Agent.Id,
-    ports: [number_of_ports]?Value,
-    pub const Id = u32;
-    pub const Arity = u8;
-};
+const VirtualMachine = @This();
+const Self = VirtualMachine;
 
-const Name = struct {
-    port: ?Value,
-};
-
-const Value = union(enum) {
-    name: *Name,
-    agent: *Agent,
-};
-
-const Equation = struct {
-    lhs: Value,
-    rhs: Value,
-};
-
-const IdCountingHashMap = struct {
-    map: std.StringHashMap(Agent.Id),
-    free_id: Agent.Id = 0,
-
-    pub fn findKey(self: *IdCountingHashMap, val: Agent.Id) ?[]const u8 {
-        var iterator = self.map.iterator();
-        while (iterator.next()) |kv| {
-            if (kv.value_ptr.* == val) {
-                return kv.key_ptr.*;
-            }
-        }
-        return null;
-    }
-
-    pub fn get(self: *IdCountingHashMap, key: []const u8) !Agent.Id {
-        if (self.map.get(key)) |val| {
-            return val;
-        } else {
-            try self.map.put(key, self.free_id);
-            defer self.free_id += 1;
-            return self.free_id;
-        }
-    }
-};
-
-var agent_id_map: IdCountingHashMap = undefined;
-var agent_arities: std.AutoHashMap(Agent.Id, Agent.Arity) = undefined;
-var associated_names: std.StringHashMap(*Name) = undefined;
-var io: std.Io = undefined;
-var threaded: std.Io.Threaded = undefined;
-
-var hashmap_arena: std.heap.ArenaAllocator = undefined;
-var allocator: std.mem.Allocator = undefined;
+name_heap: Heap(Name),
+agent_heap: Heap(Agent),
+runtime: *Runtime,
+gpa: std.mem.Allocator,
 
 pub fn Heap(T: type) type {
     return struct {
-        items: []T,
+        items: []?T,
         free_idx: usize,
         capacity: usize,
 
-        gpa: std.mem.Allocator,
-
         pub fn init(gpa: std.mem.Allocator, capacity: usize) !Heap(T) {
             return .{
-                .items = try gpa.alloc(T, capacity),
+                .items = try gpa.alloc(?T, capacity),
                 .capacity = capacity,
                 .free_idx = 0,
-                .gpa = gpa,
             };
+        }
+
+        pub fn deinit(self: *Heap(T), gpa: std.mem.Allocator) void {
+            gpa.free(self.items);
         }
 
         pub fn getOne(self: *Heap(T)) !*T {
             if (self.free_idx < self.capacity) {
                 defer self.free_idx += 1;
-                return &self.items[self.free_idx];
+                return &self.items[self.free_idx].?;
             } else {
                 return error.OutOfMemory;
             }
@@ -87,54 +46,69 @@ pub fn Heap(T: type) type {
     };
 }
 
-const VirtualMachine = struct {
-    name_heap: Heap(Name),
-    agent_heap: Heap(Agent),
-};
-
-var vm: VirtualMachine = undefined;
-
-// Potentially for threaded
-var equation_queue: std.Io.Queue(Equation) = undefined;
-// for singlethreaded prototype
-var equation_deque: std.Deque(Equation) = undefined;
-
-pub fn setupRuntime(gpa: std.mem.Allocator) !void {
-    hashmap_arena = std.heap.ArenaAllocator.init(gpa);
-    allocator = hashmap_arena.allocator();
-    agent_id_map = .{ .map = std.StringHashMap(u32).init(hashmap_arena.allocator()) };
-    associated_names = std.StringHashMap(*Name).init(hashmap_arena.allocator());
-    vm = .{ .name_heap = try Heap(Name).init(hashmap_arena.allocator(), 100), .agent_heap = try Heap(Agent).init(hashmap_arena.allocator(), 100) };
-    equation_queue = std.Io.Queue(Equation).init(&.{});
-    equation_deque = try std.Deque(Equation).initCapacity(hashmap_arena.allocator(), 10);
-    agent_arities = std.AutoHashMap(Agent.Id, Agent.Arity).init(hashmap_arena.allocator());
-    threaded = std.Io.Threaded.init(gpa, .{});
-    io = threaded.io();
+pub fn init(gpa: std.mem.Allocator, runtime: *Runtime) !Self {
+    const default_heap_size = 1024;
+    return .{
+        .runtime = runtime,
+        .agent_heap = try Heap(Agent).init(gpa, default_heap_size),
+        .name_heap = try Heap(Name).init(gpa, default_heap_size),
+        .gpa = gpa,
+    };
 }
 
-pub fn deinitRuntime() void {
-    hashmap_arena.deinit();
+pub fn deinit(self: *Self) void {
+    self.name_heap.deinit(self.gpa);
+    self.agent_heap.deinit(self.gpa);
 }
 
-pub fn printAgent(ag: *const Agent) void {
-    const name = agent_id_map.findKey(ag.id);
-    std.debug.print("{s}(", .{name.?});
-    defer std.debug.print(")", .{});
+pub fn getAgentSymbolNested(vm: *const VirtualMachine, ag: *const Agent, stream: *Types.BufferedStringStream) !void {
+    const name = vm.runtime.agent_id_map.findKey(ag.id);
+    try stream.write("{s}(", .{name.?});
     {
         var idx: usize = 0;
         while (ag.ports[idx]) |port| : (idx += 1) {
             if (idx != 0) {
-                std.debug.print(", ", .{});
+                try stream.write(", ", .{});
             }
             switch (port) {
-                .name => std.debug.print("<NAME>", .{}),
-                .agent => |new_ag| printAgent(new_ag),
+                .name => {
+                    try stream.write("<NAME>", .{});
+                },
+                .agent => |new_ag| {
+                    try getAgentSymbolNested(vm, new_ag, stream);
+                },
             }
         }
     }
+    try stream.write(")", .{});
 }
 
-pub fn tryPrint(val: Value) !void {
+pub fn getAgentSymbol(vm: *const VirtualMachine, ag: *const Agent) ![:0]const u8 {
+    const name = vm.runtime.agent_id_map.findKey(ag.id);
+    const max_agent_name_size = 128;
+    var stream = try Types.BufferedStringStream.init(vm.gpa, max_agent_name_size);
+    try stream.write("{s}(", .{name.?});
+    // TODO: Use custom object for the job
+    {
+        var idx: usize = 0;
+        while (ag.ports[idx]) |port| : (idx += 1) {
+            if (idx != 0) {
+                try stream.write(", ", .{});
+            }
+            switch (port) {
+                .name => {
+                    try stream.write("<NAME>", .{});
+                },
+                .agent => |new_ag| {
+                    try getAgentSymbolNested(vm, new_ag, &stream);
+                },
+            }
+        }
+    }
+    return @ptrCast(stream.buffer);
+}
+
+pub fn tryPrint(vm: *const VirtualMachine, val: Value) !void {
     var cur = val;
     var idx: u32 = 0;
     while (cur == .name) : ({
@@ -143,24 +117,26 @@ pub fn tryPrint(val: Value) !void {
     }) {
         if (idx > 10) {
             std.debug.print("{any} is cyclic\n", .{val.name.*});
+            return;
         }
     }
-    printAgent(cur.agent);
-    std.debug.print("\n", .{});
+    const bytes = try getAgentSymbol(vm, cur.agent);
+    defer vm.gpa.free(bytes);
+    std.debug.print("{s}\n", .{bytes});
 }
 
-pub fn createObject(obj: AST.Object) !Value {
+pub fn createObject(vm: *VirtualMachine, obj: AST.Object) !Value {
     if (obj.portlist) |portlist| {
-        const agent_id = try agent_id_map.get(obj.name);
+        const agent_id = try vm.runtime.agent_id_map.get(obj.name);
         const arity = blk: {
-            if (agent_arities.get(agent_id)) |arity| {
+            if (vm.runtime.agent_arities.get(agent_id)) |arity| {
                 if (portlist.len != arity) {
                     return error.AgentArityMismatch;
                 }
                 break :blk arity;
             } else {
                 const arity: Agent.Arity = @intCast(portlist.len);
-                try agent_arities.put(agent_id, arity);
+                try vm.runtime.agent_arities.put(agent_id, arity);
                 break :blk arity;
             }
         };
@@ -170,12 +146,12 @@ pub fn createObject(obj: AST.Object) !Value {
             var idx: u8 = 0;
             while (idx < arity) : (idx += 1) {
                 // Temporary names are needed
-                agent.ports[idx] = try createObject(portlist[idx].val);
+                agent.ports[idx] = try createObject(vm, portlist[idx].val);
             }
         }
         return Value{ .agent = agent };
     } else {
-        if (associated_names.get(obj.name)) |name| {
+        if (vm.runtime.associated_names.get(obj.name)) |name| {
             if (name.port) |port| {
                 // free name
                 return port;
@@ -185,20 +161,20 @@ pub fn createObject(obj: AST.Object) !Value {
         } else {
             const name = try vm.name_heap.getOne();
             name.* = .{ .port = null };
-            try associated_names.put(obj.name, name);
+            try vm.runtime.associated_names.put(obj.name, name);
             return Value{ .name = name };
         }
     }
     unreachable;
 }
 
-pub fn runEquations() !void {
-    while (equation_deque.popFront()) |eq| {
-        try evalEquation(eq);
+pub fn runEquations(vm: *VirtualMachine) !void {
+    while (vm.runtime.equation_deque.popFront()) |eq| {
+        try evalEquation(vm, eq);
     }
 }
 
-pub fn evalEquation(eq: Equation) !void {
+pub fn evalEquation(vm: *VirtualMachine, eq: Equation) !void {
     if (eq.lhs == .name and eq.rhs == .name) {
         if (eq.lhs.name.port) |lport| {
             if (eq.rhs.name.port) |rport| {
@@ -206,7 +182,7 @@ pub fn evalEquation(eq: Equation) !void {
                     .lhs = lport,
                     .rhs = rport,
                 };
-                try equation_deque.pushBack(allocator, new_eq);
+                try vm.runtime.equation_deque.pushBack(vm.runtime.allocator, new_eq);
             } else {
                 unreachable;
             }
@@ -230,8 +206,6 @@ pub fn evalEquation(eq: Equation) !void {
             name = eq.rhs.name;
             agent = eq.lhs.agent;
         } else {
-            try tryPrint(eq.lhs);
-            try tryPrint(eq.rhs);
             return;
         }
 
@@ -244,13 +218,13 @@ pub fn evalEquation(eq: Equation) !void {
     }
 }
 
-pub fn runProgram(program: AST.Program) !void {
+pub fn runProgram(vm: *VirtualMachine, program: AST.Program) !void {
     var index: usize = 0;
     while (index < program.statements.len) : (index += 1) {
         switch (program.statements[index].val) {
             .print_stmt => |maybe_name| {
-                if (associated_names.get(maybe_name.val)) |name| {
-                    try tryPrint(name.port.?);
+                if (vm.runtime.associated_names.get(maybe_name.val)) |name| {
+                    try tryPrint(vm, name.port.?);
                 } else {
                     std.debug.print("<UNDEFINED>\n", .{});
                 }
@@ -259,11 +233,11 @@ pub fn runProgram(program: AST.Program) !void {
                 _ = names;
             },
             .active_pair => |ap| {
-                const lhs = try createObject(ap.lhs.val);
-                const rhs = try createObject(ap.rhs.val);
+                const lhs = try createObject(vm, ap.lhs.val);
+                const rhs = try createObject(vm, ap.rhs.val);
                 const eq = Equation{ .lhs = lhs, .rhs = rhs };
-                try equation_deque.pushBack(allocator, eq);
-                try runEquations();
+                try vm.runtime.equation_deque.pushBack(vm.runtime.allocator, eq);
+                try runEquations(vm);
             },
             else => {
                 unreachable;
@@ -272,41 +246,41 @@ pub fn runProgram(program: AST.Program) !void {
     }
 }
 
-// This test is redundant, of course
-test "printing" {
-    var dalloc = std.heap.DebugAllocator(.{}).init;
-    defer dalloc.deinitWithoutLeakChecks();
-    const alloc = dalloc.allocator();
-    const contents = "a;";
-    const tokens = try Lexer.tokenize(alloc, contents);
+// // This test is redundant, of course
+// test "printing" {
+//     var dalloc = std.heap.DebugAllocator(.{}).init;
+//     defer dalloc.deinitWithoutLeakChecks();
+//     const alloc = dalloc.allocator();
+//     const contents = "a;";
+//     const tokens = try Lexer.tokenize(alloc, contents);
 
-    var parser = AST.Parser.init(tokens, alloc);
-    defer parser.deinit();
+//     var parser = AST.Parser.init(tokens, alloc);
+//     defer parser.deinit();
 
-    const program = try parser.parseProgram();
-    if (parser.err) |err| {
-        std.debug.print("{s}\n", .{try err.messageLine(alloc, &parser)});
-    }
+//     const program = try parser.parseProgram();
+//     if (parser.err) |err| {
+//         std.debug.print("{s}\n", .{try err.messageLine(alloc, &parser)});
+//     }
 
-    try setupRuntime(alloc);
+//     try setupRuntime(alloc);
 
-    const agent = try vm.agent_heap.getOne();
-    const agent2 = try vm.agent_heap.getOne();
-    const agent3 = try vm.agent_heap.getOne();
-    agent2.* = .{ .id = try agent_id_map.get("SecondWeirdAgent"), .ports = @splat(null) };
-    agent3.* = .{ .id = try agent_id_map.get("ThirdWeirdAgent"), .ports = @splat(null) };
-    agent.* = .{ .id = try agent_id_map.get("WeirdAgentName"), .ports = .{ Value{ .agent = agent2 }, Value{ .agent = agent3 } } ++ @as([8]?Value, @splat(null)) };
+//     const agent = try vm.agent_heap.getOne();
+//     const agent2 = try vm.agent_heap.getOne();
+//     const agent3 = try vm.agent_heap.getOne();
+//     agent2.* = .{ .id = try agent_id_map.get("SecondWeirdAgent"), .ports = @splat(null) };
+//     agent3.* = .{ .id = try agent_id_map.get("ThirdWeirdAgent"), .ports = @splat(null) };
+//     agent.* = .{ .id = try agent_id_map.get("WeirdAgentName"), .ports = .{ Value{ .agent = agent2 }, Value{ .agent = agent3 } } ++ @as([8]?Value, @splat(null)) };
 
-    const name = try vm.name_heap.getOne();
-    name.* = .{ .port = .{ .agent = agent } };
+//     const name = try vm.name_heap.getOne();
+//     name.* = .{ .port = .{ .agent = agent } };
 
-    try associated_names.put("a", name);
-    defer deinitRuntime();
+//     try associated_names.put("a", name);
+//     defer deinitRuntime();
 
-    _ = program;
-    // try runProgram(program);
-    // return error.ToyError;
-}
+//     _ = program;
+//     // try runProgram(program);
+//     // return error.ToyError;
+// }
 
 test "vm test" {
     try std.testing.expect(true);

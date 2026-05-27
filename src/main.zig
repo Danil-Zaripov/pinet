@@ -24,7 +24,9 @@ pub fn main(init: std.process.Init) !void {
     var parser = pinet.Parser.Parser.init(tokens, gpa);
     defer parser.deinit();
     const program = try parser.parseProgram();
-    try pinet.VM.setupRuntime(gpa);
-    defer pinet.VM.deinitRuntime();
-    try pinet.VM.runProgram(program);
+    var runtime = try pinet.Runtime.init(gpa);
+    defer runtime.deinit(gpa);
+    var vm = try pinet.VM.init(gpa, &runtime);
+    defer vm.deinit();
+    try vm.runProgram(program);
 }
