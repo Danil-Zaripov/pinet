@@ -1,6 +1,6 @@
-# pINet
+# pinet
 
-Pinet is a parallel interaction nets interpreter, inspired by Inpla. The language is Inpla's dialect.
+Pinet is a (not yet) parallel interaction nets interpreter, inspired by Inpla. The language is Inpla's dialect.
 
 ## How to run
 
@@ -16,11 +16,12 @@ Note that this will compile in debug mode. For release mode use `-Doptimize=Rele
 
 ## Current state
 
-Pinet is in early development
+Pinet is in early development.
 
 ### Done
 
 - custom rules
+- single-threaded evaluation
 
 ### TODO
 
