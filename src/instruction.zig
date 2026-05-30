@@ -24,10 +24,16 @@ const Location = struct {
 tag: Tag,
 operand1: ?RegisterId,
 operand2: ?RegisterId,
-const Tag = union(enum) { MkAgent: Agent.Id, MkName, PutIntoPort: PortIdx, Push, PutArgumentPort: struct {
-    take_lhs: bool,
-    port_idx: usize,
-} };
+const Tag = union(enum) {
+    MkAgent: Agent.Id,
+    MkName,
+    PutIntoPort: PortIdx,
+    Push,
+    PutArgumentPort: struct {
+        take_lhs: bool,
+        port_idx: usize,
+    },
+};
 
 pub fn mk_agent(id: Agent.Id, loc: RegisterId) Instruction {
     return .{

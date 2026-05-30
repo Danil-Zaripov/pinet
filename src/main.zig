@@ -3,9 +3,17 @@ const Io = std.Io;
 
 const pinet = @import("pinet");
 
+// TODO: normal args parsing using clap
 pub fn main(init: std.process.Init) !void {
     const gpa = init.gpa;
-    const filepath = "./tests/rules.in";
+    const args = init.minimal.args.vector;
+    const filepath: []const u8 = if (args.len < 2) "./tests/rules.in" else if_stmt: {
+        const data: [*:0]const u8 = args[1];
+        const len: usize = loop: for (0..128) |idx| {
+            if (data[idx] == 0) break :loop idx;
+        } else unreachable;
+        break :if_stmt data[0..len];
+    };
     var sthreaded = Io.Threaded.init_single_threaded;
     defer sthreaded.deinit();
     const io = sthreaded.io();
