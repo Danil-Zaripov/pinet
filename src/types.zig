@@ -2,9 +2,11 @@ const std = @import("std");
 
 const number_of_ports = 10;
 
+pub const Ports = [number_of_ports]?Value;
+
 pub const Agent = struct {
     id: Agent.Id,
-    ports: [number_of_ports]?Value,
+    ports: Ports,
     pub const Id = u32;
     pub const Arity = u8;
 };

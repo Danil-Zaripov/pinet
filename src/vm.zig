@@ -6,7 +6,7 @@ const Runtime = @import("runtime.zig");
 const Instruction = @import("instruction.zig");
 const Builtin = @import("builtin.zig");
 
-const Config = @import("config");
+pub const Config = @import("config");
 
 const Agent = Types.Agent;
 const Value = Types.Value;
@@ -64,7 +64,18 @@ pub fn Heap(T: type) type {
                 std.debug.print("Free is called\n", .{});
             }
             const real_elem = @as(*Optional, @fieldParentPtr("item", elem));
-            real_elem.* = .free;
+            if (!Config.debug_printing.print_frees) {
+                real_elem.* = .free;
+            } else {
+                switch (real_elem.*) {
+                    .free => {
+                        std.debug.print("Double-free\n", .{});
+                    },
+                    .item => {
+                        real_elem.* = .free;
+                    },
+                }
+            }
         }
 
         pub fn printUsage(self: *const Heap(T)) void {
@@ -78,6 +89,17 @@ pub fn Heap(T: type) type {
             std.debug.print("Heap({s}): {} used, {} free, sizeOf(Optional) = {}, sizeOf(T) = {}\n", .{ @typeName(T), used, free, @sizeOf(Optional), @sizeOf(T) });
         }
     };
+}
+
+pub fn createAgent(vm: *VirtualMachine, id: Agent.Id) !*Agent {
+    const ag = try vm.agent_heap.getOne();
+    ag.id = id;
+    ag.ports = @splat(null);
+    return ag;
+}
+
+pub fn pushEquation(vm: *VirtualMachine, eq: Equation) !void {
+    try vm.runtime.equation_deque.pushBack(vm.runtime.allocator, eq);
 }
 
 pub fn init(gpa: std.mem.Allocator, runtime: *Runtime) !Self {
@@ -283,6 +305,7 @@ pub fn evalEquation(vm: *VirtualMachine, eq: Equation) !void {
                     if (lport.name == eq.rhs.name) {
                         // crossreference
                         // do nothing?
+                        std.debug.print("cyclic crossreference\n", .{});
                         return;
                     }
                 }
@@ -344,19 +367,19 @@ pub fn evalEquation(vm: *VirtualMachine, eq: Equation) !void {
     }
     var a1 = eq.lhs.agent;
     var a2 = eq.rhs.agent;
-    defer Heap(Agent).freeOne(a1);
-    defer Heap(Agent).freeOne(a2);
 
     if (Builtin.isBuiltinAgent(a1.id)) {
         const f = Builtin.BuiltinTable.get(a1.id).?;
-        try f(vm, a2);
+        try f(vm, a1, a2);
         return;
     }
     if (Builtin.isBuiltinAgent(a2.id)) {
         const f = Builtin.BuiltinTable.get(a2.id).?;
-        try f(vm, a1);
+        try f(vm, a2, a1);
         return;
     }
+    defer Heap(Agent).freeOne(a1);
+    defer Heap(Agent).freeOne(a2);
 
     const rule_key_maybe = vm.runtime.rule_table.get(.{ .lhs = a1.id, .rhs = a2.id });
     if (Config.debug_printing.print_interactions) {
