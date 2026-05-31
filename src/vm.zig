@@ -4,6 +4,7 @@ const Lexer = @import("lexer.zig");
 const Types = @import("types.zig");
 const Runtime = @import("runtime.zig");
 const Instruction = @import("instruction.zig");
+const Builtin = @import("builtin.zig");
 
 const Config = @import("config");
 
@@ -74,8 +75,7 @@ pub fn Heap(T: type) type {
                 }
             }
             const free = self.items.len - used;
-            std.debug.print("Heap({s}): {} used, {} free, sizeOf(Optional) = {}, sizeOf(T) = {}\n",
-                .{ @typeName(T), used, free, @sizeOf(Optional), @sizeOf(T) });
+            std.debug.print("Heap({s}): {} used, {} free, sizeOf(Optional) = {}, sizeOf(T) = {}\n", .{ @typeName(T), used, free, @sizeOf(Optional), @sizeOf(T) });
         }
     };
 }
@@ -346,6 +346,18 @@ pub fn evalEquation(vm: *VirtualMachine, eq: Equation) !void {
     var a2 = eq.rhs.agent;
     defer Heap(Agent).freeOne(a1);
     defer Heap(Agent).freeOne(a2);
+
+    if (Builtin.isBuiltinAgent(a1.id)) {
+        const f = Builtin.BuiltinTable.get(a1.id).?;
+        try f(vm, a2);
+        return;
+    }
+    if (Builtin.isBuiltinAgent(a2.id)) {
+        const f = Builtin.BuiltinTable.get(a2.id).?;
+        try f(vm, a1);
+        return;
+    }
+
     const rule_key_maybe = vm.runtime.rule_table.get(.{ .lhs = a1.id, .rhs = a2.id });
     if (Config.debug_printing.print_interactions) {
         std.debug.print("{s} - {s} interaction\n", .{ vm.runtime.agent_id_map.findKey(a1.id).?, vm.runtime.agent_id_map.findKey(a2.id).? });

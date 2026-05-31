@@ -23,10 +23,6 @@ Mul(r,x) >< Z() =>
     r ~ Z(),
     x ~ Eraser();
 
-Eraser() >< Z() =>;
-Eraser() >< S(x) =>
-    Eraser() ~ x;
-
 a ~ S(S(S(Z())));
 b ~ S(S(S(Z())));
 Mul(r, a) ~ b;
