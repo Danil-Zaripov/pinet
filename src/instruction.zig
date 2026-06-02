@@ -106,30 +106,35 @@ pub fn debugPrintInstruction(vm: *const VM, instrs: []Instruction) !void {
 
 const CompiledRule = struct { RuleKey, []Instruction };
 
-const InstrsWithReturn = struct { reg: RegisterId, instrs: []Instruction };
+const CompiledTerm = struct { reg: RegisterId, instrs: []Instruction };
+
+const NameInfo = struct { location: RegisterId, is_on_port: bool = false, used: bool = false };
+
+const CompiledName = struct { name_info: *NameInfo, instrs: []Instruction };
 
 const Scope = struct {
-    map: std.StringHashMap(?RegisterId),
+    map: std.StringHashMap(NameInfo),
     free_idx: RegisterId,
     pub fn getFree(self: *Scope) RegisterId {
         defer self.free_idx += 1;
         return self.free_idx;
     }
 
-    pub fn associate(self: *Scope, name: []const u8) !RegisterId {
+    pub fn associate(self: *Scope, name: []const u8) !*NameInfo {
         if (self.map.get(name)) |_| {
             return error.ValueExists;
         } else {
             const val = self.getFree();
-            try self.map.put(name, val);
-            return val;
+            const info = NameInfo{ .location = val };
+            const result = try self.map.getOrPutValue(name, info);
+            return result.value_ptr;
         }
     }
 
     pub fn init(allocator: std.mem.Allocator) Scope {
         return .{
             .free_idx = 0,
-            .map = std.StringHashMap(?RegisterId).init(allocator),
+            .map = std.StringHashMap(NameInfo).init(allocator),
         };
     }
     pub fn deinit(self: *Scope) void {
@@ -137,26 +142,26 @@ const Scope = struct {
     }
 };
 
-pub fn compileName(runtime: *Runtime, na: AST.Object, scope: *Scope) !InstrsWithReturn {
+pub fn compileName(runtime: *Runtime, na: AST.Object, scope: *Scope) !CompiledName {
     const name = na.name;
     var list = std.ArrayList(Instruction).empty;
-    var reg: usize = undefined;
+    var name_info: *NameInfo = undefined;
     if (scope.map.getPtr(name)) |existing| {
-        if (existing.*) |reg_id| {
-            reg = reg_id;
-            existing.* = null;
+        if (!existing.used) {
+            name_info = existing;
+            existing.used = true;
         } else {
             return error.NameUsedTwice;
         }
     } else {
-        reg = try scope.associate(name);
-        try list.append(runtime.allocator, Instruction.mk_name(reg));
+        name_info = try scope.associate(name);
+        try list.append(runtime.allocator, Instruction.mk_name(name_info.location));
     }
 
-    return .{ .reg = reg, .instrs = try list.toOwnedSlice(runtime.allocator) };
+    return .{ .name_info = name_info, .instrs = try list.toOwnedSlice(runtime.allocator) };
 }
 
-pub fn compileAgent(runtime: *Runtime, ag: AST.Object, scope: *Scope) !InstrsWithReturn {
+pub fn compileAgent(runtime: *Runtime, ag: AST.Object, scope: *Scope) !CompiledTerm {
     var list = std.ArrayList(Instruction).empty;
     const id = try runtime.agent_id_map.get(ag.name);
     const arity = try runtime.agent_arities.get(id, ag.portlist.?.len);
@@ -172,18 +177,29 @@ pub fn compileAgent(runtime: *Runtime, ag: AST.Object, scope: *Scope) !InstrsWit
         } else {
             const compiledName = try compileName(runtime, port, scope);
             try list.appendSlice(runtime.allocator, compiledName.instrs);
-            try list.append(runtime.allocator, Instruction.put_into_port(idx, compiledName.reg, reg));
+            try list.append(runtime.allocator, Instruction.put_into_port(idx, compiledName.name_info.location, reg));
+            // if (!compiledName.name_info.is_on_port) {
+            //     compiledName.name_info.is_on_port = true;
+            //     try list.append(runtime.allocator, Instruction.put_into_port(idx, compiledName.name_info.location, reg));
+            // } else {
+            //     // name is on port => make temp name and connect them
+            //     const free_reg = scope.getFree();
+            //     try list.append(runtime.allocator, Instruction.mk_name(free_reg));
+            //     try list.append(runtime.allocator, Instruction.put_into_port(idx, free_reg, reg));
+            //     try list.append(runtime.allocator, Instruction.push(free_reg, compiledName.name_info.location));
+            // }
         }
     }
 
     return .{ .reg = reg, .instrs = try list.toOwnedSlice(runtime.allocator) };
 }
 
-pub fn compileTerm(runtime: *Runtime, obj: AST.Object, scope: *Scope) !InstrsWithReturn {
+pub fn compileTerm(runtime: *Runtime, obj: AST.Object, scope: *Scope) !CompiledTerm {
     if (obj.portlist) |_| {
         return try compileAgent(runtime, obj, scope);
     } else {
-        return try compileName(runtime, obj, scope);
+        const compiledName = try compileName(runtime, obj, scope);
+        return .{ .instrs = compiledName.instrs, .reg = compiledName.name_info.location };
     }
 }
 
@@ -203,7 +219,7 @@ pub fn compileRule(runtime: *Runtime, rule: AST.Rule) !CompiledRule {
         } else {
             const compiledName = try compileName(runtime, port, &scope);
             try list.appendSlice(runtime.allocator, compiledName.instrs);
-            try list.append(runtime.allocator, put_argument_port(compiledName.reg, true, idx));
+            try list.append(runtime.allocator, put_argument_port(compiledName.name_info.location, true, idx));
         }
     }
 
@@ -214,7 +230,7 @@ pub fn compileRule(runtime: *Runtime, rule: AST.Rule) !CompiledRule {
         } else {
             const compiledName = try compileName(runtime, port, &scope);
             try list.appendSlice(runtime.allocator, compiledName.instrs);
-            try list.append(runtime.allocator, put_argument_port(compiledName.reg, false, idx));
+            try list.append(runtime.allocator, put_argument_port(compiledName.name_info.location, false, idx));
         }
     }
 

@@ -5,6 +5,8 @@ const Builtin = @import("builtin.zig");
 // Runtime module
 // for anything shared in the vm
 
+const Config = @import("vm.zig").Config;
+
 const Self = @This();
 
 const Agent = Types.Agent;
@@ -44,6 +46,9 @@ pub const IdCountingHashMap = struct {
         if (self.map.get(key)) |val| {
             return val;
         } else {
+            if (Config.debug_printing.print_compiled_instructions) {
+                std.debug.print("Getting {} for key: {s}\n", .{ self.free_id, key });
+            }
             try self.map.put(key, self.free_id);
             defer self.free_id += 1;
             return self.free_id;

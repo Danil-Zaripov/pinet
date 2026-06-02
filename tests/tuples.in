@@ -1,0 +1,24 @@
+Add(tup) >< S(y) =>
+    tup ~ (r, x),
+    Add((w, x)) ~ y,
+    r ~ S(w);
+
+Add(tup) >< Z() =>
+    tup ~ (r, x),
+    r ~ x;
+
+Mul(tup) >< S(y) =>
+    tup ~ (r, x),
+    Dup(x1, x2) ~ x,
+    Mul((w, x1)) ~ y,
+    Add((r, w)) ~ x2;
+
+Mul(tup) >< Z() =>
+    tup ~ (r, x),
+    r ~ Z(),
+    x ~ Eraser();
+
+a ~ S(S(S(Z())));
+b ~ S(S(S(Z())));
+Mul((r, a)) ~ b;
+r;

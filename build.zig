@@ -46,6 +46,8 @@ pub fn build(b: *std.Build) void {
                 .{ .name = "pinet", .module = mod },
             },
         }),
+        // To use llvm debugger:
+        // .use_llvm = true,
     });
 
     const debug_printing = DebugPrintConfig{

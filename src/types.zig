@@ -15,6 +15,8 @@ pub const Agent = struct {
 pub const Name = struct {
     port: ?Value,
 
+    // Unchaining is not used anywhere
+    // As it brings instability
     pub fn unchain(name: *Name) void {
         var node = if ((name.port orelse return) == .name) name.port.?.name else return;
         while (node.port) |port| {

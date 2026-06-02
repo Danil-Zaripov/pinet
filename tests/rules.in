@@ -14,7 +14,7 @@ Mul(r,x) >< Z() =>
     r ~ Z(),
     x ~ Eraser();
 
-a ~ S(S(S(Z())));
+a ~ S(S(Z()));
 b ~ S(S(S(Z())));
 Mul(r, a) ~ b;
 r;

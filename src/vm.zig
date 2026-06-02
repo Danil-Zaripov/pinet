@@ -4,6 +4,7 @@ const Lexer = @import("lexer.zig");
 const Types = @import("types.zig");
 const Runtime = @import("runtime.zig");
 const Instruction = @import("instruction.zig");
+const Interaction = @import("interactions.zig");
 const Builtin = @import("builtin.zig");
 
 pub const Config = @import("config");
@@ -72,7 +73,7 @@ pub fn Heap(T: type) type {
                         std.debug.print("Double-free\n", .{});
                     },
                     .item => {
-                        real_elem.* = .free;
+                        //real_elem.* = .free;
                     },
                 }
             }
@@ -159,7 +160,7 @@ pub fn getAgentSymbolNested(vm: *const VirtualMachine, ag: *const Agent, stream:
 
 pub fn getAgentSymbol(vm: *const VirtualMachine, ag: *const Agent) ![]const u8 {
     const name = vm.runtime.agent_id_map.findKey(ag.id);
-    const max_agent_name_size = 128;
+    const max_agent_name_size = 512;
     var stream = try Types.BufferedStringStream.init(vm.gpa, max_agent_name_size);
     try stream.write("{s}(", .{name.?});
     {
@@ -264,7 +265,7 @@ pub fn createObject(vm: *VirtualMachine, obj: AST.Object) !Value {
     unreachable;
 }
 
-pub fn execInstructions(vm: *VirtualMachine, instrs: []Instruction, original_eq: Equation) !void {
+pub fn execInstructions(vm: *VirtualMachine, instrs: []Instruction, lagent: *Agent, ragent: *Agent) !void {
     for (instrs) |instruction| {
         switch (instruction.tag) {
             .MkAgent => |id| {
@@ -288,8 +289,8 @@ pub fn execInstructions(vm: *VirtualMachine, instrs: []Instruction, original_eq:
                 vm.registers[instruction.operand1.?] = .{ .name = name };
             },
             .PutArgumentPort => |port| {
-                const val = if (port.take_lhs) original_eq.lhs else original_eq.rhs;
-                vm.registers[instruction.operand1.?].name.port = val.agent.ports[port.port_idx].?;
+                const val = if (port.take_lhs) lagent else ragent;
+                vm.registers[instruction.operand1.?].name.port = val.ports[port.port_idx].?;
             },
         }
     }
@@ -297,117 +298,7 @@ pub fn execInstructions(vm: *VirtualMachine, instrs: []Instruction, original_eq:
 
 pub fn runEquations(vm: *VirtualMachine) !void {
     while (vm.runtime.equation_deque.popFront()) |eq| {
-        try evalEquation(vm, eq);
-    }
-}
-
-// TODO: rewrite logic
-pub fn evalEquation(vm: *VirtualMachine, eq: Equation) !void {
-    if (eq.lhs == .name and eq.rhs == .name) {
-        if (Config.debug_printing.print_interactions) {
-            std.debug.print("name - name interaction\n", .{});
-        }
-
-        if (eq.lhs.name.port) |lport| {
-            if (eq.rhs.name.port) |rport| {
-                if (lport == .name) {
-                    if (lport.name == eq.rhs.name) {
-                        // crossreference
-                        // do nothing?
-                        std.debug.print("cyclic crossreference\n", .{});
-                        return;
-                    }
-                }
-                defer Heap(Name).freeOne(eq.lhs.name);
-                defer Heap(Name).freeOne(eq.rhs.name);
-                const new_eq = Equation{
-                    .lhs = lport,
-                    .rhs = rport,
-                };
-                try vm.runtime.equation_deque.pushBack(vm.runtime.allocator, new_eq);
-            } else {
-                // rhs is new, left has something
-                // This should not happen on the top level
-                eq.rhs.name.port = lport.unchain();
-                Heap(Name).freeOne(eq.lhs.name);
-            }
-        } else {
-            if (eq.rhs.name.port) |rport| {
-                // lhs is new, right has something
-                // This should not happen on the top level
-                eq.lhs.name.port = rport.unchain();
-                Heap(Name).freeOne(eq.rhs.name);
-            } else {
-                // In case a ~ b; and a and b were new names
-                // They start pointing to each other
-                eq.lhs.name.port = eq.rhs;
-                eq.rhs.name.port = eq.lhs;
-            }
-        }
-        return;
-    }
-    blk: {
-        var name: *Name = undefined;
-        var agent: *Agent = undefined;
-        if (eq.lhs == .name and eq.rhs == .agent) {
-            name = eq.lhs.name;
-            agent = eq.rhs.agent;
-        } else if (eq.rhs == .name and eq.lhs == .agent) {
-            name = eq.rhs.name;
-            agent = eq.lhs.agent;
-        } else {
-            break :blk;
-        }
-
-        if (Config.debug_printing.print_interactions) {
-            std.debug.print("{s} - name interaction\n", .{vm.runtime.agent_id_map.findKey(agent.id).?});
-        }
-        if (name.port) |port| {
-            const new_eq = Equation{
-                .lhs = port,
-                .rhs = .{ .agent = agent },
-            };
-            try vm.runtime.equation_deque.pushBack(vm.runtime.allocator, new_eq);
-            Heap(Name).freeOne(name);
-        } else {
-            name.port = Value{ .agent = agent };
-        }
-        return;
-    }
-    var a1 = eq.lhs.agent;
-    var a2 = eq.rhs.agent;
-
-    if (Builtin.isBuiltinAgent(a1.id)) {
-        const f = Builtin.BuiltinTable.get(a1.id).?;
-        try f(vm, a1, a2);
-        return;
-    }
-    if (Builtin.isBuiltinAgent(a2.id)) {
-        const f = Builtin.BuiltinTable.get(a2.id).?;
-        try f(vm, a2, a1);
-        return;
-    }
-    defer Heap(Agent).freeOne(a1);
-    defer Heap(Agent).freeOne(a2);
-
-    const rule_key_maybe = vm.runtime.rule_table.get(.{ .lhs = a1.id, .rhs = a2.id });
-    if (Config.debug_printing.print_interactions) {
-        std.debug.print("{s} - {s} interaction\n", .{ vm.runtime.agent_id_map.findKey(a1.id).?, vm.runtime.agent_id_map.findKey(a2.id).? });
-    }
-    if (rule_key_maybe) |rule_key| {
-        if (rule_key[1]) {
-            a1 = eq.rhs.agent;
-            a2 = eq.lhs.agent;
-        }
-        try vm.execInstructions(rule_key[0], Equation{ .lhs = .{ .agent = a1 }, .rhs = .{ .agent = a2 } });
-    } else |err| {
-        switch (err) {
-            error.UnknownRule => {
-                std.debug.print("{s} - {s}\n", .{ vm.runtime.agent_id_map.findKey(a1.id).?, vm.runtime.agent_id_map.findKey(a2.id).? });
-                return error.UnknownRule;
-            },
-            else => unreachable,
-        }
+        try Interaction.evalEquation(vm, eq);
     }
 }
 

@@ -7,7 +7,7 @@ const pinet = @import("pinet");
 pub fn main(init: std.process.Init) !void {
     const gpa = init.gpa;
     const args = init.minimal.args.vector;
-    const filepath: []const u8 = if (args.len < 2) "./tests/rules.in" else if_stmt: {
+    const filepath: []const u8 = if (args.len < 2) "./tests/tuples.in" else if_stmt: {
         const data: [*:0]const u8 = args[1];
         const len: usize = loop: for (0..128) |idx| {
             if (data[idx] == 0) break :loop idx;
@@ -27,7 +27,14 @@ pub fn main(init: std.process.Init) !void {
     defer gpa.free(tokens);
     var parser = try pinet.Parser.Parser.init(tokens, gpa);
     defer parser.deinit(gpa);
-    const program = try parser.parseProgram();
+    const program = parser.parseProgram() catch |err| {
+        if (err == error.ErrorDuringParsing) {
+            const messageLine = try parser.err.?.messageLine(gpa, &parser);
+            std.debug.print("{s}\n", .{messageLine});
+            gpa.free(messageLine);
+        }
+        return err;
+    };
     var runtime = try pinet.Runtime.init(gpa);
     defer runtime.deinit(gpa);
     var vm = try pinet.VM.init(gpa, &runtime);

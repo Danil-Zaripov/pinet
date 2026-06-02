@@ -71,7 +71,9 @@ const ParserError = struct {
     }
     pub fn messageLine(self: *const ParserError, alloc: std.mem.Allocator, parser_data: *const Parser) ![]const u8 {
         const loc = parser_data.tokens[self.pos].loc.start;
-        return std.fmt.allocPrint(alloc, "{}:{} {s}", .{ loc.line, loc.ch, try self.message(alloc) });
+        const msg = try self.message(alloc);
+        defer alloc.free(msg);
+        return std.fmt.allocPrint(alloc, "{}:{} {s}", .{ loc.line, loc.ch, msg });
     }
 };
 
@@ -123,14 +125,14 @@ pub const Parser = struct {
         return self.tokens[self.index - 1];
     }
 
-    fn parseObjList(self: *Parser) error{ OutOfMemory, ErrorDuringParsing }![]Node(Object) {
+    fn parseObjList(self: *Parser) error{ NoSpaceLeft, OutOfMemory, ErrorDuringParsing }![]Node(Object) {
         var list = std.ArrayList(Node(Object)).empty;
         const objt = self.peek();
         objtoken: switch (objt.tag) {
             .rparen => {
                 return list.items;
             },
-            .identifier => {
+            .identifier, .lparen => {
                 const obj = try self.parseObject();
                 try list.append(self.allocator, obj);
                 if (self.peek().tag == .comma) {
@@ -150,12 +152,36 @@ pub const Parser = struct {
     }
 
     fn parseObject(self: *Parser) !Node(Object) {
-        // TODO: tuples have no name: (a,b,c) is an object
-        const tentry = self.advance();
-        var ret: Node(Object) = .{ .val = undefined, .tslice = .{ .start = @intCast(self.index - 1), .end = undefined } };
+        const tentry = self.peek();
+        var ret: Node(Object) = .{
+            .val = Object{
+                .name = undefined,
+                .portlist = undefined,
+            },
+            .tslice = .{
+                .start = @intCast(self.index),
+                .end = undefined,
+            },
+        };
+        var tuple = false;
         defer ret.tslice.end = @intCast(self.index - 1);
-        try self.expectTag(.identifier, tentry.tag);
-        ret.val.name = tentry.content.?;
+
+        switch (tentry.tag) {
+            .identifier => {
+                ret.val.name = tentry.content.?;
+                _ = self.advance();
+            },
+            .lparen => {
+                tuple = true;
+            },
+            else => {
+                self.err = ParserError{
+                    .tag = .{ .ExpectedObject = .{ .found = tentry.tag } },
+                    .pos = self.index,
+                };
+                return Error.ErrorDuringParsing;
+            },
+        }
 
         switch (self.peek().tag) {
             .lparen => {
@@ -169,7 +195,15 @@ pub const Parser = struct {
                 ret.val.portlist = null;
             },
         }
+
+        if (tuple) {
+            ret.val.name = try self.getTupleName(ret.val.portlist.?.len);
+        }
         return ret;
+    }
+
+    fn getTupleName(self: *Parser, size: usize) ![]u8 {
+        return std.fmt.allocPrint(self.allocator, "Tuple{}", .{size});
     }
 
     fn expectTag(self: *Parser, expected: Token.Tag, actual: Token.Tag) Error!void {
@@ -305,8 +339,8 @@ test "rule stmt" {
     ;
     const tokens = try Lexer.tokenize(alloc, program);
 
-    var parser = Parser.init(tokens, alloc);
-    defer parser.deinit();
+    var parser = try Parser.init(tokens, alloc);
+    defer parser.deinit(alloc);
 
     const stmt = parser.parseStmt();
     if (parser.err) |err| {
@@ -332,8 +366,8 @@ test "active pair stmt" {
     const program = "A(b,c) ~ Z;";
     const tokens = try Lexer.tokenize(alloc, program);
 
-    var parser = Parser.init(tokens, alloc);
-    defer parser.deinit();
+    var parser = try Parser.init(tokens, alloc);
+    defer parser.deinit(alloc);
 
     const stmt = parser.parseStmt();
     if (parser.err) |err| {
@@ -358,8 +392,8 @@ test "free stmt" {
     const program = "free a b longname'''';";
     const tokens = try Lexer.tokenize(alloc, program);
 
-    var parser = Parser.init(tokens, alloc);
-    defer parser.deinit();
+    var parser = try Parser.init(tokens, alloc);
+    defer parser.deinit(alloc);
 
     const stmt = parser.parseStmt();
     if (parser.err) |err| {

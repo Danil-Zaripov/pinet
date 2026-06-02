@@ -9,9 +9,12 @@ const Equation = Types.Equation;
 
 // builtin agents logic
 
-const BuiltinAgentError = error{
+pub const BuiltinAgentError = error{
+    Exiter,
     OutOfMemory,
     NoSpaceLeft,
+    ArityMismatch,
+    NoRuleSpecified,
 };
 
 const BuiltinSignature = *const fn (*VM, *Agent, *Agent) BuiltinAgentError!void;
@@ -50,49 +53,75 @@ pub fn deinit() void {
 
 // Making this empty makes there be no
 // builtin agents. TODO: use compile flag for that
+//
+// Maybe make the "Abc0" , ... , "Abc10" agents be placed here at compile time
 pub const builtin_agents = [_]BuiltinAgent{
+    // Let this be the first agent.
+    .{ .name = "Exiter", .arity = 0, .impl = exiter },
+
     .{ .name = "Eraser", .arity = 0, .impl = eraser },
+
+    // Dups
     .{ .name = "Dup", .arity = 2, .impl = dupCopy },
     .{ .name = "Dup2", .arity = 2, .impl = dupCopy },
     .{ .name = "Dup3", .arity = 3, .impl = dupCopy },
     .{ .name = "Dup4", .arity = 4, .impl = dupCopy },
+
+    // Tuples
+    .{ .name = "Tuple0", .arity = 0, .impl = tuple },
+    .{ .name = "Tuple1", .arity = 1, .impl = tuple },
+    .{ .name = "Tuple2", .arity = 2, .impl = tuple },
+    .{ .name = "Tuple3", .arity = 3, .impl = tuple },
+    .{ .name = "Tuple4", .arity = 4, .impl = tuple },
+    .{ .name = "Tuple5", .arity = 5, .impl = tuple },
+    .{ .name = "Tuple6", .arity = 6, .impl = tuple },
 };
 
 // Add more builtin agents logic here
 
+pub fn exiter(vm: *VM, self: *Agent, other: *Agent) BuiltinAgentError!void {
+    _ = vm;
+    _ = self;
+    _ = other;
+    return BuiltinAgentError.Exiter;
+}
+
 pub fn eraser(vm: *VM, self: *Agent, ag: *Agent) BuiltinAgentError!void {
     defer VM.Heap(Agent).freeOne(self);
-    defer VM.Heap(Agent).freeOne(ag);
 
     if (VM.Config.debug_printing.print_interactions) {
         std.debug.print("Freeing ", .{});
         try vm.tryPrint(Value{ .agent = ag });
     }
     // Anonymous function
-    const createEraser = struct {
+    const erase = struct {
         pub fn createEraser(_vm: *VM) !*Agent {
             return _vm.createAgent(BuiltinNameMap.get("Eraser").?);
         }
-    }.createEraser;
-
-    for (ag.ports) |maybe_port| {
-        if (maybe_port) |port| {
-            port_switch: switch (port) {
-                .name => |name| {
-                    if (name.port) |name_port| {
-                        defer VM.Heap(Name).freeOne(name);
-                        continue :port_switch name_port;
-                    } else {
-                        // If the name is free yet, create eraser on its port
-                        name.port = Value{ .agent = try createEraser(vm) };
-                    }
-                },
-                .agent => |agent| {
-                    return eraser(vm, self, agent);
-                },
+        pub fn erase(_vm: *VM, agent: *Agent) !void {
+            defer VM.Heap(Agent).freeOne(agent);
+            const ag_arity = _vm.runtime.agent_arities.map.get(agent.id).?;
+            for (0..ag_arity) |idx| {
+                const port = agent.ports[idx].?;
+                port_switch: switch (port) {
+                    .name => |name| {
+                        if (name.port) |name_port| {
+                            defer VM.Heap(Name).freeOne(name);
+                            continue :port_switch name_port;
+                        } else {
+                            // If the name is free yet, create eraser on its port
+                            name.port = Value{ .agent = try createEraser(_vm) };
+                        }
+                    },
+                    .agent => |_agent| {
+                        try erase(_vm, _agent);
+                    },
+                }
             }
         }
-    }
+    }.erase;
+
+    try erase(vm, ag);
 }
 
 pub fn dupCopy(vm: *VM, self: *Agent, ag: *Agent) BuiltinAgentError!void {
@@ -109,53 +138,57 @@ pub fn dupCopy(vm: *VM, self: *Agent, ag: *Agent) BuiltinAgentError!void {
     const makeCopy = struct {
         pub fn makeCopy(_vm: *VM, _arity: u8, port_idx: usize, agent: *Agent, names_map: *std.AutoHashMap(*Name, []*Name)) !*Agent {
             const ag_copy = try _vm.createAgent(agent.id);
-            for (agent.ports, 0..) |maybe_port, idx| {
-                if (maybe_port) |port| {
-                    port_switch: switch (port) {
-                        .name => |connected_name| {
-                            if (connected_name.port) |connected_thing| {
-                                // If the name has a port then we skip the original name and
-                                // go straight to its port
-                                VM.Heap(Name).freeOne(connected_name);
-                                continue :port_switch connected_thing;
-                            } else {
-                                const names = names_map.get(connected_name).?;
-                                names[port_idx] = try _vm.name_heap.getOne();
-                                ag_copy.ports[idx] = Value{ .name = names[port_idx] };
-                                names[port_idx].port = Value{ .agent = ag_copy };
-                            }
-                        },
-                        .agent => |connected_agent| {
-                            ag_copy.ports[idx] = Value{ .agent = try makeCopy(_vm, _arity, port_idx, connected_agent, names_map) };
-                        },
-                    }
+            const ag_arity = _vm.runtime.agent_arities.map.get(agent.id).?;
+            for (0..ag_arity) |idx| {
+                const port = agent.ports[idx].?;
+                port_switch: switch (port) {
+                    .name => |connected_name| {
+                        if (connected_name.port) |connected_thing| {
+                            // If the name has a port then we skip the original name and
+                            // go straight to its port
+                            VM.Heap(Name).freeOne(connected_name);
+                            continue :port_switch connected_thing;
+                        } else {
+                            std.debug.print("Dup to name\n", .{});
+                            const names = names_map.get(connected_name).?;
+                            names[port_idx] = try _vm.name_heap.getOne();
+                            ag_copy.ports[idx] = Value{ .name = names[port_idx] };
+                            names[port_idx].port = Value{ .agent = ag_copy };
+                        }
+                    },
+                    .agent => |connected_agent| {
+                        ag_copy.ports[idx] = Value{ .agent = try makeCopy(_vm, _arity, port_idx, connected_agent, names_map) };
+                    },
                 }
             }
             return ag_copy;
         }
         pub fn copyNames(_vm: *VM, _arity: u8, agent: *Agent, names_map: *std.AutoHashMap(*Name, []*Name), allocator: std.mem.Allocator) !*Agent {
-            for (agent.ports, 0..) |maybe_port, idx| {
-                if (maybe_port) |port| {
-                    port_switch: switch (port) {
-                        .name => |connected_name| {
-                            if (connected_name.port) |connected_thing| {
-                                // If the name has a port then we skip the original name and
-                                // go straight to its port
-                                VM.Heap(Name).freeOne(connected_name);
-                                continue :port_switch connected_thing;
-                            } else {
-                                const names = try allocator.alloc(*Name, _arity);
-                                const new_name = try _vm.name_heap.getOne();
-                                try names_map.put(new_name, names);
-                                names[0] = connected_name;
-                                agent.ports[idx] = Value{ .name = new_name };
-                                new_name.port = Value{ .agent = agent };
-                            }
-                        },
-                        .agent => |connected_agent| {
-                            agent.ports[idx] = Value{ .agent = try copyNames(_vm, _arity, connected_agent, names_map, allocator) };
-                        },
-                    }
+            const ag_arity = _vm.runtime.agent_arities.map.get(agent.id).?;
+            for (0..ag_arity) |idx| {
+                const port = agent.ports[idx].?;
+                port_switch: switch (port) {
+                    .name => |connected_name| {
+                        if (connected_name.port) |connected_thing| {
+                            // If the name has a port then we skip the original name and
+                            // go straight to its port
+                            // Based on 02.06.2026 debugging session
+                            // This could be bad. Check first if something breaks.
+                            VM.Heap(Name).freeOne(connected_name);
+                            continue :port_switch connected_thing;
+                        } else {
+                            std.debug.print("Dup to name\n", .{});
+                            const names = try allocator.alloc(*Name, _arity);
+                            const new_name = try _vm.name_heap.getOne();
+                            try names_map.put(new_name, names);
+                            names[0] = connected_name;
+                            agent.ports[idx] = Value{ .name = new_name };
+                            new_name.port = Value{ .agent = agent };
+                        }
+                    },
+                    .agent => |connected_agent| {
+                        agent.ports[idx] = Value{ .agent = try copyNames(_vm, _arity, connected_agent, names_map, allocator) };
+                    },
                 }
             }
             return agent;
@@ -190,6 +223,24 @@ pub fn dupCopy(vm: *VM, self: *Agent, ag: *Agent) BuiltinAgentError!void {
             .lhs = Value{ .name = kv.value_ptr.*[0] },
             .rhs = Value{ .agent = dup_ag },
         };
+        try vm.pushEquation(eq);
+    }
+}
+
+pub fn tuple(vm: *VM, self: *Agent, other: *Agent) BuiltinAgentError!void {
+    if (self.id != other.id) {
+        return BuiltinAgentError.NoRuleSpecified;
+    }
+    defer VM.Heap(Agent).freeOne(self);
+    defer VM.Heap(Agent).freeOne(other);
+    const arity = vm.runtime.agent_arities.map.get(self.id).?;
+
+    for (0..arity) |port_idx| {
+        const eq = Equation{
+            .lhs = self.ports[port_idx].?,
+            .rhs = other.ports[port_idx].?,
+        };
+
         try vm.pushEquation(eq);
     }
 }
