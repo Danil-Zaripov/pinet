@@ -22,8 +22,9 @@ const Location = struct {
 };
 
 tag: Tag,
-operand1: ?RegisterId,
-operand2: ?RegisterId,
+// Better than optional?
+operand1: RegisterId = undefined,
+operand2: RegisterId = undefined,
 const Tag = union(enum) {
     MkAgent: Agent.Id,
     MkName,
@@ -39,7 +40,6 @@ pub fn mk_agent(id: Agent.Id, loc: RegisterId) Instruction {
     return .{
         .tag = .{ .MkAgent = id },
         .operand1 = loc,
-        .operand2 = null,
     };
 }
 
@@ -47,7 +47,6 @@ pub fn mk_name(loc: RegisterId) Instruction {
     return .{
         .tag = .MkName,
         .operand1 = loc,
-        .operand2 = null,
     };
 }
 
@@ -71,7 +70,6 @@ pub fn put_argument_port(reg: RegisterId, take_lhs: bool, port_idx: usize) Instr
     return .{
         .tag = .{ .PutArgumentPort = .{ .take_lhs = take_lhs, .port_idx = port_idx } },
         .operand1 = reg,
-        .operand2 = null,
     };
 }
 

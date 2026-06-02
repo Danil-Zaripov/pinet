@@ -271,26 +271,26 @@ pub fn execInstructions(vm: *VirtualMachine, instrs: []Instruction, lagent: *Age
             .MkAgent => |id| {
                 const ag = try vm.agent_heap.getOne();
                 ag.* = .{ .id = id, .ports = @splat(null) };
-                vm.registers[instruction.operand1.?] = .{ .agent = ag };
+                vm.registers[instruction.operand1] = .{ .agent = ag };
             },
             .PutIntoPort => |port_idx| {
-                vm.registers[instruction.operand2.?].agent.ports[port_idx] = vm.registers[instruction.operand1.?];
+                vm.registers[instruction.operand2].agent.ports[port_idx] = vm.registers[instruction.operand1];
             },
             .Push => {
                 const eq = Equation{
-                    .lhs = vm.registers[instruction.operand1.?],
-                    .rhs = vm.registers[instruction.operand2.?],
+                    .lhs = vm.registers[instruction.operand1],
+                    .rhs = vm.registers[instruction.operand2],
                 };
                 try vm.runtime.equation_deque.pushBack(vm.runtime.allocator, eq);
             },
             .MkName => {
                 const name = try vm.name_heap.getOne();
                 name.* = .{ .port = null };
-                vm.registers[instruction.operand1.?] = .{ .name = name };
+                vm.registers[instruction.operand1] = .{ .name = name };
             },
             .PutArgumentPort => |port| {
                 const val = if (port.take_lhs) lagent else ragent;
-                vm.registers[instruction.operand1.?].name.port = val.ports[port.port_idx].?;
+                vm.registers[instruction.operand1].name.port = val.ports[port.port_idx].?;
             },
         }
     }
