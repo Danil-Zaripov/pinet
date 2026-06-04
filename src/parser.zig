@@ -4,6 +4,8 @@ const Lexer = @import("lexer.zig");
 const Token = Lexer.Token;
 
 pub const number_special_ident = "#number";
+pub const cons_list_ident = "Cons";
+pub const nil_list_ident = "Nil";
 
 const TokenSlice = struct {
     start: u32,
@@ -153,6 +155,55 @@ pub const Parser = struct {
         return try list.toOwnedSlice(self.allocator);
     }
 
+    fn parseConsList(self: *Parser) error{ NoSpaceLeft, OutOfMemory, ErrorDuringParsing }!Node(Object) {
+        const tentry = self.peek();
+        var ret: Node(Object) = .{
+            .val = Object{
+                .name = undefined,
+                .portlist = undefined,
+            },
+            .tslice = .{
+                .start = @intCast(self.index),
+                .end = undefined,
+            },
+        };
+        defer ret.tslice.end = @intCast(self.index - 1);
+        switch (tentry.tag) {
+            .identifier, .numeric_literal, .lparen => {
+                ret.val.name = cons_list_ident;
+                ret.val.portlist = try self.allocator.alloc(Node(Object), 2);
+                ret.val.portlist.?[0] = try self.parseObject();
+                if (self.peek().tag == .comma) {
+                    _ = self.advance();
+                } else if (self.peek().tag != .rbracket) {
+                    self.err = .{
+                        .pos = self.index,
+                        .tag = .{
+                            .ExpectedObject = .{ .found = tentry.tag },
+                        },
+                    };
+                    return Error.ErrorDuringParsing;
+                }
+                ret.val.portlist.?[1] = try self.parseConsList();
+            },
+            .rbracket => {
+                _ = self.advance();
+                ret.val.name = nil_list_ident;
+                ret.val.portlist = try self.allocator.alloc(Node(Object), 0);
+            },
+            else => {
+                self.err = .{
+                    .pos = self.index,
+                    .tag = .{
+                        .ExpectedObject = .{ .found = tentry.tag },
+                    },
+                };
+                return Error.ErrorDuringParsing;
+            },
+        }
+        return ret;
+    }
+
     fn parseObject(self: *Parser) !Node(Object) {
         const tentry = self.peek();
         var ret: Node(Object) = .{
@@ -166,6 +217,7 @@ pub const Parser = struct {
             },
         };
         var tuple = false;
+        var list = false;
         defer ret.tslice.end = @intCast(self.index - 1);
 
         switch (tentry.tag) {
@@ -190,6 +242,9 @@ pub const Parser = struct {
                 _ = self.advance();
                 return ret;
             },
+            .lbracket => {
+                list = true;
+            },
             .lparen => {
                 tuple = true;
             },
@@ -200,6 +255,11 @@ pub const Parser = struct {
                 };
                 return Error.ErrorDuringParsing;
             },
+        }
+
+        if (list) {
+            _ = self.advance();
+            return parseConsList(self);
         }
 
         switch (self.peek().tag) {

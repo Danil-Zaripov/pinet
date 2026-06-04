@@ -14,7 +14,7 @@ Add(r, x) >< Nil() =>
 
 g ~ Add(c, 4);
 
-lst ~ Cons(1, Cons(c, Cons(100.1, Nil())));
+lst ~ [1, c, 100.1];
 
 g ~ 6;
 
