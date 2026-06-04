@@ -5,8 +5,9 @@ const Runtime = @import("runtime.zig");
 const VM = @import("vm.zig");
 
 const Agent = Types.Agent;
-const Value = Types.Value;
+const Special = Types.Special;
 const Name = Types.Name;
+const Value = Types.Value;
 const Equation = Types.Equation;
 
 const RegisterId = usize;
@@ -28,6 +29,7 @@ operand2: RegisterId = undefined,
 const Tag = union(enum) {
     MkAgent: Agent.Id,
     MkName,
+    MkSpecial: Special,
     PutIntoPort: PortIdx,
     Push,
     PutArgumentPort: struct {
@@ -46,6 +48,13 @@ pub fn mk_agent(id: Agent.Id, loc: RegisterId) Instruction {
 pub fn mk_name(loc: RegisterId) Instruction {
     return .{
         .tag = .MkName,
+        .operand1 = loc,
+    };
+}
+
+pub fn mk_special(special: Special, loc: RegisterId) Instruction {
+    return .{
+        .tag = .{ .MkSpecial = special },
         .operand1 = loc,
     };
 }
@@ -76,9 +85,9 @@ pub fn put_argument_port(reg: RegisterId, take_lhs: bool, port_idx: usize) Instr
 pub fn debugPrintInstruction(vm: *const VM, instrs: []Instruction) !void {
     for (instrs) |instr| {
         defer std.debug.print("\n\n", .{});
-        std.debug.print("REG{} ", .{instr.operand1.?});
-        if (instr.operand2) |operand2| {
-            std.debug.print("TO REG{}", .{operand2});
+        std.debug.print("REG{} ", .{instr.operand1});
+        if (instr.tag == .Push or instr.tag == .PutArgumentPort) {
+            std.debug.print("TO REG{}", .{instr.operand2});
         }
         std.debug.print(": ", .{});
         switch (instr.tag) {
@@ -140,6 +149,18 @@ const Scope = struct {
     }
 };
 
+pub fn compileNumber(runtime: *Runtime, obj: AST.Object, scope: *Scope) !CompiledTerm {
+    const agent_id = runtime.agent_id_map.map.get(AST.number_special_ident).?;
+    var list = std.ArrayList(Instruction).empty;
+    const reg = scope.getFree();
+    try list.append(runtime.allocator, mk_agent(agent_id, reg));
+    const special_reg = scope.getFree();
+    const special = try VM.getNumberType(obj.portlist.?[0].val.name);
+    try list.append(runtime.allocator, mk_special(special, special_reg));
+    try list.append(runtime.allocator, put_into_port(0, special_reg, reg));
+    return .{ .reg = reg, .instrs = try list.toOwnedSlice(runtime.allocator) };
+}
+
 pub fn compileName(runtime: *Runtime, na: AST.Object, scope: *Scope) !CompiledName {
     const name = na.name;
     var list = std.ArrayList(Instruction).empty;
@@ -169,9 +190,16 @@ pub fn compileAgent(runtime: *Runtime, ag: AST.Object, scope: *Scope) !CompiledT
     for (0..arity) |idx| {
         const port = ag.portlist.?[idx].val;
         if (port.portlist) |_| {
-            const compiledAgent = try compileAgent(runtime, port, scope);
-            try list.appendSlice(runtime.allocator, compiledAgent.instrs);
-            try list.append(runtime.allocator, Instruction.put_into_port(idx, compiledAgent.reg, reg));
+            if (port.name[0] == '#') {
+                // number
+                const compiledNumber = try compileNumber(runtime, port, scope);
+                try list.appendSlice(runtime.allocator, compiledNumber.instrs);
+                try list.append(runtime.allocator, Instruction.put_into_port(idx, compiledNumber.reg, reg));
+            } else {
+                const compiledAgent = try compileAgent(runtime, port, scope);
+                try list.appendSlice(runtime.allocator, compiledAgent.instrs);
+                try list.append(runtime.allocator, Instruction.put_into_port(idx, compiledAgent.reg, reg));
+            }
         } else {
             const compiledName = try compileName(runtime, port, scope);
             try list.appendSlice(runtime.allocator, compiledName.instrs);
@@ -194,7 +222,11 @@ pub fn compileAgent(runtime: *Runtime, ag: AST.Object, scope: *Scope) !CompiledT
 
 pub fn compileTerm(runtime: *Runtime, obj: AST.Object, scope: *Scope) !CompiledTerm {
     if (obj.portlist) |_| {
-        return try compileAgent(runtime, obj, scope);
+        if (obj.name[0] == '#') {
+            return try compileNumber(runtime, obj, scope);
+        } else {
+            return try compileAgent(runtime, obj, scope);
+        }
     } else {
         const compiledName = try compileName(runtime, obj, scope);
         return .{ .instrs = compiledName.instrs, .reg = compiledName.name_info.location };

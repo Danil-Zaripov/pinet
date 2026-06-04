@@ -3,6 +3,8 @@ const Lexer = @import("lexer.zig");
 
 const Token = Lexer.Token;
 
+pub const number_special_ident = "#number";
+
 const TokenSlice = struct {
     start: u32,
     end: u32,
@@ -132,7 +134,7 @@ pub const Parser = struct {
             .rparen => {
                 return list.items;
             },
-            .identifier, .lparen => {
+            .identifier, .lparen, .numeric_literal => {
                 const obj = try self.parseObject();
                 try list.append(self.allocator, obj);
                 if (self.peek().tag == .comma) {
@@ -171,7 +173,23 @@ pub const Parser = struct {
                 ret.val.name = tentry.content.?;
                 _ = self.advance();
             },
-            .numeric_literal => {},
+            .numeric_literal => {
+                ret.val.name = number_special_ident;
+                const objlist = try self.allocator.alloc(Node(Object), 1);
+                objlist[0] = Node(Object){
+                    .val = Object{
+                        .name = tentry.content.?,
+                        .portlist = null,
+                    },
+                    .tslice = .{
+                        .start = @intCast(self.index),
+                        .end = @intCast(self.index),
+                    },
+                };
+                ret.val.portlist = objlist;
+                _ = self.advance();
+                return ret;
+            },
             .lparen => {
                 tuple = true;
             },
@@ -258,7 +276,7 @@ pub const Parser = struct {
                 const names = try self.parseNameList();
                 ret.val = .{ .free_stmt = names };
             },
-            .identifier => {
+            .identifier, .numeric_literal, .lparen => {
                 const lhs = try self.parseObject();
                 const connection = self.peek();
                 switch (connection.tag) {

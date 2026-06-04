@@ -115,6 +115,9 @@ allocator: std.mem.Allocator,
 equation_queue: std.Io.Queue(Equation),
 // for singlethreaded prototype
 equation_deque: std.Deque(Equation),
+
+// TODO: proper priority queue?
+urgent_deque: std.Deque(Equation),
 rule_table: RuleTable,
 
 pub fn init(gpa: std.mem.Allocator) !Self {
@@ -134,6 +137,7 @@ pub fn init(gpa: std.mem.Allocator) !Self {
         .associated_names = std.StringHashMap(?*Name).init(allocator),
         .equation_queue = std.Io.Queue(Equation).init(&.{}),
         .equation_deque = try std.Deque(Equation).initCapacity(allocator, 10),
+        .urgent_deque = try std.Deque(Equation).initCapacity(allocator, 10),
         .agent_arities = try ArityMap.init(allocator),
         .rule_table = RuleTable.init(allocator),
         .threaded = threaded,

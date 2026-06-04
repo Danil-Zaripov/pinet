@@ -124,6 +124,7 @@ pub fn evalEquation(vm: *VM, eq: Equation) !void {
                 .agent => |ragent| {
                     try name_agent(vm, lname, ragent);
                 },
+                else => unreachable,
             }
         },
         .agent => |lagent| {
@@ -134,7 +135,9 @@ pub fn evalEquation(vm: *VM, eq: Equation) !void {
                 .agent => |ragent| {
                     try agent_agent(vm, lagent, ragent);
                 },
+                else => unreachable,
             }
         },
+        else => unreachable,
     }
 }

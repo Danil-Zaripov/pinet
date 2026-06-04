@@ -23,6 +23,7 @@ Pinet is in early development.
 - custom rules
 - single-threaded evaluation
 - builtins (dups, erasers) using static virtual tables
+- number support
 
 ### TODO
 
@@ -30,7 +31,6 @@ Pinet is in early development.
 - golden tests using zig build system
 - optional debug printing
 - error handling on all stages
-- number support
 - rules for wildcart agents (`Agent() >< any => ...;`)
 - lists support
 - research into name chaining (a lot of unnecessary temporary names get created during execution, which leads to increased memory consumption)

@@ -103,6 +103,10 @@ pub fn pushEquation(vm: *VirtualMachine, eq: Equation) !void {
     try vm.runtime.equation_deque.pushBack(vm.runtime.allocator, eq);
 }
 
+pub fn pushUrgent(vm: *VirtualMachine, eq: Equation) !void {
+    try vm.runtime.urgent_deque.pushBack(vm.runtime.allocator, eq);
+}
+
 pub fn init(gpa: std.mem.Allocator, runtime: *Runtime) !Self {
     const default_heap_size = 1024;
     return .{
@@ -152,6 +156,16 @@ pub fn getAgentSymbolNested(vm: *const VirtualMachine, ag: *const Agent, stream:
                 .agent => |new_ag| {
                     try getAgentSymbolNested(vm, new_ag, stream);
                 },
+                .special => |special| {
+                    switch (special) {
+                        .float => |float| {
+                            try stream.write("{}", .{float});
+                        },
+                        .integer => |integer| {
+                            try stream.write("{}", .{integer});
+                        },
+                    }
+                },
             }
         }
     }
@@ -193,6 +207,16 @@ pub fn getAgentSymbol(vm: *const VirtualMachine, ag: *const Agent) ![]const u8 {
                 .agent => |new_ag| {
                     try getAgentSymbolNested(vm, new_ag, &stream);
                 },
+                .special => |special| {
+                    switch (special) {
+                        .float => |float| {
+                            try stream.write("{}", .{float});
+                        },
+                        .integer => |integer| {
+                            try stream.write("{}", .{integer});
+                        },
+                    }
+                },
             }
         }
     }
@@ -220,7 +244,36 @@ pub fn tryPrint(vm: *const VirtualMachine, val: Value) !void {
     std.debug.print("{s}\n", .{bytes});
 }
 
+pub fn getNumberType(str: []const u8) !Types.Special {
+    const contains = struct {
+        pub fn contains(s: []const u8, selected: u8) bool {
+            for (s) |char| {
+                if (char == selected) return true;
+            }
+            return false;
+        }
+    }.contains;
+
+    if (contains(str, '.')) {
+        return Types.Special{ .float = try std.fmt.parseFloat(f32, str) };
+    } else {
+        return Types.Special{ .integer = try std.fmt.parseInt(i32, str, 10) };
+    }
+}
+
 pub fn createObject(vm: *VirtualMachine, obj: AST.Object) !Value {
+    if (obj.name[0] == '#') {
+        // is number
+        const num = obj.portlist.?[0].val;
+        const numtype = try getNumberType(num.name);
+        const agent_id = Builtin.BuiltinNameMap.get("#number").?;
+        var agent = try vm.createAgent(agent_id);
+        agent.ports[0] = Value{
+            .special = numtype,
+        };
+
+        return .{ .agent = agent };
+    }
     if (obj.portlist) |portlist| {
         const agent_id = try vm.runtime.agent_id_map.get(obj.name);
         const arity = try vm.runtime.agent_arities.get(agent_id, obj.portlist.?.len);
@@ -273,6 +326,9 @@ pub fn execInstructions(vm: *VirtualMachine, instrs: []Instruction, lagent: *Age
                 ag.* = .{ .id = id, .ports = @splat(null) };
                 vm.registers[instruction.operand1] = .{ .agent = ag };
             },
+            .MkSpecial => |special| {
+                vm.registers[instruction.operand1] = .{ .special = special };
+            },
             .PutIntoPort => |port_idx| {
                 vm.registers[instruction.operand2].agent.ports[port_idx] = vm.registers[instruction.operand1];
             },
@@ -297,8 +353,16 @@ pub fn execInstructions(vm: *VirtualMachine, instrs: []Instruction, lagent: *Age
 }
 
 pub fn runEquations(vm: *VirtualMachine) !void {
-    while (vm.runtime.equation_deque.popFront()) |eq| {
+    var maybe_eq: ?Equation = vm.runtime.equation_deque.popFront();
+    while (maybe_eq) |eq| {
         try Interaction.evalEquation(vm, eq);
+
+        if (vm.runtime.urgent_deque.popFront()) |urgent_eq| {
+            maybe_eq = urgent_eq;
+            continue;
+        }
+
+        maybe_eq = vm.runtime.equation_deque.popFront();
     }
 }
 

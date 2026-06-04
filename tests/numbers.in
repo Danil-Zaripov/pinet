@@ -1,0 +1,41 @@
+
+a ~ 123;
+b ~ 321;
+
+Add(r1, a) ~ b;
+r1;
+
+Add(r, x) >< Cons(elem, tail) =>
+    Add(w, x) ~ elem,
+    Add(r, w) ~ tail;
+
+Add(r, x) >< Nil() =>
+    r ~ x;
+
+g ~ Add(c, 4);
+
+lst ~ Cons(1, Cons(c, Cons(100.1, Nil())));
+
+g ~ 6;
+
+Add(r2, 0) ~ lst;
+
+r2;
+
+Fib'(r, p1, p2) >< Z() =>
+    r ~ p2,
+    Eraser() ~ p1;
+
+Fib'(r, p1, p2) >< S(x) =>
+    Dup(p1', p1'') ~ p1,
+    Add(new_p1, p1') ~ p2,
+    Fib'(r, new_p1, p1'') ~ x;
+
+Fib(r) >< S(x) =>
+    Fib'(r, 1, 0) ~ S(x);
+
+Fib(r) >< Z() =>
+    Fib'(r, 1, 0) ~ Z();
+
+Fib(r3) ~ S(S(S(S(S(S(S(S(Z()))))))));
+r3;

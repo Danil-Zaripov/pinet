@@ -7,7 +7,7 @@ const pinet = @import("pinet");
 pub fn main(init: std.process.Init) !void {
     const gpa = init.gpa;
     const args = init.minimal.args.vector;
-    const filepath: []const u8 = if (args.len < 2) "./tests/tuples.in" else if_stmt: {
+    const filepath: []const u8 = if (args.len < 2) "./tests/numbers.in" else if_stmt: {
         const data: [*:0]const u8 = args[1];
         const len: usize = loop: for (0..128) |idx| {
             if (data[idx] == 0) break :loop idx;

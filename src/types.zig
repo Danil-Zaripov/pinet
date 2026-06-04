@@ -28,11 +28,95 @@ pub const Name = struct {
         name.port = node.port;
         Heap(Name).freeOne(node);
     }
+
+    pub fn is_open(name: *Name) bool {
+        return if (name.port) |_| true else false;
+    }
 };
 
+pub const Special = union(enum) {
+    float: f32,
+    integer: i32,
+
+    pub fn add(self: Special, other: Special) Special {
+        switch (self) {
+            .float => |lfloat| {
+                switch (other) {
+                    .float => |rfloat| {
+                        return Special{ .float = lfloat + rfloat };
+                    },
+                    .integer => |rinteger| {
+                        return Special{ .float = lfloat + @as(f32, @floatFromInt(rinteger)) };
+                    },
+                }
+            },
+            .integer => |linteger| {
+                switch (other) {
+                    .float => |rfloat| {
+                        return Special{ .float = @as(f32, @floatFromInt(linteger)) + rfloat };
+                    },
+                    .integer => |rinteger| {
+                        return Special{ .integer = linteger + rinteger };
+                    },
+                }
+            },
+        }
+    }
+    pub fn mul(self: Special, other: Special) Special {
+        switch (self) {
+            .float => |lfloat| {
+                switch (other) {
+                    .float => |rfloat| {
+                        return Special{ .float = lfloat * rfloat };
+                    },
+                    .integer => |rinteger| {
+                        return Special{ .float = lfloat * @as(f32, @floatFromInt(rinteger)) };
+                    },
+                }
+            },
+            .integer => |linteger| {
+                switch (other) {
+                    .float => |rfloat| {
+                        return Special{ .float = @as(f32, @floatFromInt(linteger)) * rfloat };
+                    },
+                    .integer => |rinteger| {
+                        return Special{ .integer = linteger * rinteger };
+                    },
+                }
+            },
+        }
+    }
+    pub fn div(self: Special, other: Special) Special {
+        switch (self) {
+            .float => |lfloat| {
+                switch (other) {
+                    .float => |rfloat| {
+                        return Special{ .float = lfloat / rfloat };
+                    },
+                    .integer => |rinteger| {
+                        return Special{ .float = lfloat / @as(f32, @floatFromInt(rinteger)) };
+                    },
+                }
+            },
+            .integer => |linteger| {
+                switch (other) {
+                    .float => |rfloat| {
+                        return Special{ .float = @as(f32, @floatFromInt(linteger)) / rfloat };
+                    },
+                    .integer => |rinteger| {
+                        return Special{ .integer = @divFloor(linteger, rinteger) };
+                    },
+                }
+            },
+        }
+    }
+};
 pub const Value = union(enum) {
     name: *Name,
     agent: *Agent,
+
+    // specials are special in the fact that they can not interact directly
+    special: Special,
 
     pub fn unchain(val: Value) Value {
         switch (val) {

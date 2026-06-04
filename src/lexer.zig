@@ -138,6 +138,8 @@ pub const Tokenizer = struct {
         eq,
         less,
         greater,
+        forward_slash,
+        commentline,
         end,
         invalid,
     };
@@ -242,6 +244,10 @@ pub const Tokenizer = struct {
                     // We don't allow .123 type numbers?
                     continue :state .invalid;
                 },
+                '/' => {
+                    self.advance();
+                    continue :state .forward_slash;
+                },
                 else => {
                     std.debug.print("{c}", .{self.buffer[self.index]});
                     unreachable;
@@ -343,6 +349,27 @@ pub const Tokenizer = struct {
                     },
                 }
             },
+            .forward_slash => {
+                switch (self.buffer[self.index]) {
+                    '/' => {
+                        continue :state .commentline;
+                    },
+                    else => {
+                        result.tag = .invalid;
+                    },
+                }
+            },
+            .commentline => {
+                self.advance();
+                switch (self.buffer[self.index]) {
+                    '\n', 0 => {
+                        result.tag = .commentline;
+                    },
+                    else => {
+                        continue :state .commentline;
+                    },
+                }
+            },
             .invalid => {
                 self.advance();
                 switch (self.buffer[self.index]) {
@@ -369,7 +396,9 @@ pub fn tokenize(allocator: std.mem.Allocator, contents: [:0]const u8) ![]Token {
     var tokenizer = Tokenizer.init(contents);
     var cur = tokenizer.next();
     while (cur.tag != .eof) : (cur = tokenizer.next()) {
-        try arr.append(allocator, cur);
+        if (cur.tag != .commentline) {
+            try arr.append(allocator, cur);
+        }
     }
     try arr.append(allocator, cur);
     return arr.toOwnedSlice(allocator);
