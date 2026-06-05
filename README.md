@@ -24,6 +24,7 @@ Pinet is in early development.
 - single-threaded evaluation
 - builtins (dups, erasers) using static virtual tables
 - number support
+- lists support
 
 ### TODO
 
@@ -31,8 +32,8 @@ Pinet is in early development.
 - golden tests using zig build system
 - optional debug printing
 - error handling on all stages
+- conditionals in rules
 - rules for wildcart agents (`Agent() >< any => ...;`)
-- lists support
 - research into name chaining (a lot of unnecessary temporary names get created during execution, which leads to increased memory consumption)
 - multithreading
 

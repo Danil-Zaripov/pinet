@@ -36,6 +36,12 @@ pub fn createAgent(vm: *VirtualMachine, id: Agent.Id) !*Agent {
     return ag;
 }
 
+pub fn createNumberAgent(vm: *VirtualMachine, num: Types.Special) !*Agent {
+    const ag = try createAgent(vm, Builtin.BuiltinNameMap.get(Builtin.number_builtin_ident).?);
+    ag.ports[0] = Value{ .special = num };
+    return ag;
+}
+
 pub fn pushEquation(vm: *VirtualMachine, eq: Equation) !void {
     try vm.runtime.equation_deque.pushBack(vm.runtime.allocator, eq);
 }

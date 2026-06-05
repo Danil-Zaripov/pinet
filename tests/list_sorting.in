@@ -1,0 +1,7 @@
+
+MakeRandomList(lst) ~ 1;
+
+// We can't really sort now because we don't have a way to compare the values,
+// but we can at least make sure it doesn't crash.
+
+lst;

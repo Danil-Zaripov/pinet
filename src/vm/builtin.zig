@@ -86,6 +86,10 @@ pub const builtin_agents = [_]BuiltinAgent{
     .{ .name = "Add", .arity = 2, .impl = unbuiltin },
     .{ .name = "Mul", .arity = 2, .impl = unbuiltin },
     .{ .name = "Div", .arity = 2, .impl = unbuiltin },
+
+    .{ .name = "Cons", .arity = 2, .impl = unbuiltin },
+    .{ .name = "Nil", .arity = 0, .impl = unbuiltin },
+    .{ .name = "MakeRandomList", .arity = 1, .impl = make_random_list },
 };
 
 // Add more builtin agents logic here
@@ -353,4 +357,52 @@ pub fn number(vm: *VM, self: *Agent, other: *Agent) BuiltinAgentError!void {
     } else {
         return BuiltinAgentError.NoRuleSpecified;
     }
+}
+
+pub fn make_random_list(vm: *VM, self: *Agent, other: *Agent) BuiltinAgentError!void {
+    const number_id = BuiltinNameMap.get(number_builtin_ident).?;
+    if (other.id != number_id) return BuiltinAgentError.NoRuleSpecified;
+
+    const num_special = other.ports[0].?.special;
+    const num = switch (num_special) {
+        .integer => |i| i,
+        .float => return BuiltinAgentError.BadSecondaryArgument,
+    };
+
+    defer VM.Heap(Agent).freeOne(self);
+    defer VM.Heap(Agent).freeOne(other);
+    var prng: std.Random.DefaultPrng = .init(blk: {
+        var buffer: [8]u8 = undefined;
+        vm.runtime.io.random(buffer[0..]);
+        break :blk std.mem.readInt(u64, buffer[0..], .native);
+    });
+    const rand = prng.random();
+
+    const lst = blk: {
+        if (num > 0) {
+            const ag = try vm.createAgent(BuiltinNameMap.get("Cons").?);
+            ag.ports[0] = Value{ .agent = try vm.createNumberAgent(.{ .integer = rand.intRangeAtMost(i32, -10000, 10000) }) };
+            break :blk ag;
+        } else {
+            break :blk try vm.createAgent(BuiltinNameMap.get("Nil").?);
+        }
+    };
+
+    var node = lst;
+    for (1..@as(usize, @intCast(num))) |_| {
+        var new_node = try vm.createAgent(BuiltinNameMap.get("Cons").?);
+        new_node.ports[0] = Value{ .agent = try vm.createNumberAgent(.{ .integer = rand.intRangeAtMost(i32, -10000, 10000) }) };
+        node.ports[1] = Value{ .agent = new_node };
+        node = new_node;
+    }
+
+    if (num > 0) {
+        node.ports[1] = Value{ .agent = try vm.createAgent(BuiltinNameMap.get("Nil").?) };
+    }
+
+    const eq = Equation{
+        .lhs = self.ports[0].?,
+        .rhs = Value{ .agent = lst },
+    };
+    try vm.pushEquation(eq);
 }
