@@ -7,6 +7,7 @@ pub const number_special_ident = "#number";
 pub const cons_list_ident = "Cons";
 pub const nil_list_ident = "Nil";
 
+// TODO: Split parser and ast into two separate files
 const TokenSlice = struct {
     start: u32,
     end: u32,
@@ -202,8 +203,6 @@ pub const Parser = struct {
     }
 
     fn parseExpression(self: *Parser, min_bp: i32) !*Node(Expression) {
-        // a   ||   b    ==     c     &&     d
-        //   20  21   11    10     30    31
         var lhs = try self.parseUnary();
         while (true) {
             const token = self.peek().tag;
@@ -442,9 +441,34 @@ pub const Parser = struct {
     }
 
     pub fn parseRule(self: *Parser, lhs: Node(Object)) !Rule {
-        _ = lhs;
-        _ = self;
-        return Error.ErrorDuringParsing;
+        var ret = Rule{
+            .lhs = lhs,
+            .rhs = try self.parseObject(),
+            .rule_exprs = undefined,
+        };
+        const tentry = self.peek().tag;
+
+        var lst = try std.ArrayList(RuleExpression).initCapacity(self.allocator, 1);
+
+        switch (tentry) {
+            .fatrightarrow => {
+                _ = self.advance();
+                const rule_expr: RuleExpression = .{
+                    .expr = null,
+                    .pairs = try self.parsePairs(),
+                };
+                try lst.append(self.allocator, rule_expr);
+            },
+            else => {
+                self.err = .{
+                    .pos = @intCast(self.index),
+                    .tag = .{ .ExpectedStatement = .{ .found = tentry } },
+                };
+                return Error.ErrorDuringParsing;
+            },
+        }
+        ret.rule_exprs = try lst.toOwnedSlice(self.allocator);
+        return ret;
     }
 
     pub fn parseStmt(self: *Parser) !?Node(Statement) {
@@ -555,8 +579,8 @@ test "rule stmt" {
             try std.testing.expectEqualStrings("Add", rule.lhs.val.name);
             try std.testing.expectEqualStrings("S", rule.rhs.val.name);
             try std.testing.expectEqualStrings("y", rule.rhs.val.portlist.?[0].val.name);
-            try std.testing.expectEqualStrings("w", rule.pairs[0].val.lhs.val.portlist.?[0].val.name);
-            try std.testing.expectEqualStrings("w", rule.pairs[1].val.rhs.val.portlist.?[0].val.name);
+            try std.testing.expectEqualStrings("w", rule.rule_exprs[0].pairs[0].val.lhs.val.portlist.?[0].val.name);
+            try std.testing.expectEqualStrings("w", rule.rule_exprs[0].pairs[1].val.rhs.val.portlist.?[0].val.name);
         },
         else => unreachable,
     }
