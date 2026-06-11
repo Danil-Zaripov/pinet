@@ -86,6 +86,7 @@ pub const builtin_agents = [_]BuiltinAgent{
     // numbers
     .{ .name = number_builtin_ident, .arity = 1, .impl = number },
     .{ .name = "Add", .arity = 2, .impl = unbuiltin },
+    .{ .name = "Sub", .arity = 2, .impl = unbuiltin },
     .{ .name = "Mul", .arity = 2, .impl = unbuiltin },
     .{ .name = "Div", .arity = 2, .impl = unbuiltin },
 
@@ -286,7 +287,8 @@ pub fn number(vm: *VM, self: *Agent, other: *Agent) BuiltinAgentError!void {
     const adder_id = BuiltinNameMap.get("Add").?;
     const mult_id = BuiltinNameMap.get("Mul").?;
     const div_id = BuiltinNameMap.get("Div").?;
-    if (other.id != adder_id and other.id != mult_id and other.id != div_id) return BuiltinAgentError.NoRuleSpecified;
+    const sub_id = BuiltinNameMap.get("Sub").?;
+    if (other.id != adder_id and other.id != mult_id and other.id != div_id and other.id != sub_id) return BuiltinAgentError.NoRuleSpecified;
 
     const self_special = self.ports[0].?.special;
 
@@ -326,7 +328,7 @@ pub fn number(vm: *VM, self: *Agent, other: *Agent) BuiltinAgentError!void {
             .lhs = other.ports[0].?,
             .rhs = .{ .agent = ret_ag },
         };
-        try vm.pushEquation(eq);
+        try vm.pushUrgent(eq);
     } else if (other.id == mult_id) {
         defer VM.Heap(Agent).freeOne(self);
         defer VM.Heap(Agent).freeOne(other);
@@ -341,7 +343,7 @@ pub fn number(vm: *VM, self: *Agent, other: *Agent) BuiltinAgentError!void {
             .lhs = other.ports[0].?,
             .rhs = .{ .agent = ret_ag },
         };
-        try vm.pushEquation(eq);
+        try vm.pushUrgent(eq);
     } else if (other.id == div_id) {
         defer VM.Heap(Agent).freeOne(self);
         defer VM.Heap(Agent).freeOne(other);
@@ -356,7 +358,22 @@ pub fn number(vm: *VM, self: *Agent, other: *Agent) BuiltinAgentError!void {
             .lhs = other.ports[0].?,
             .rhs = .{ .agent = ret_ag },
         };
-        try vm.pushEquation(eq);
+        try vm.pushUrgent(eq);
+    } else if (other.id == sub_id) {
+        defer VM.Heap(Agent).freeOne(self);
+        defer VM.Heap(Agent).freeOne(other);
+
+        const sv = try getSecondValue(other.ports[1].?);
+
+        const ret = Special.sub(self_special, sv);
+        const ret_ag = try vm.createAgent(self.id);
+        ret_ag.ports[0] = Value{ .special = ret };
+
+        const eq = Equation{
+            .lhs = other.ports[0].?,
+            .rhs = .{ .agent = ret_ag },
+        };
+        try vm.pushUrgent(eq);
     } else {
         return BuiltinAgentError.NoRuleSpecified;
     }

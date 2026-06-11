@@ -7,7 +7,7 @@ const pinet = @import("pinet");
 pub fn main(init: std.process.Init) !void {
     const gpa = init.gpa;
     const args = init.minimal.args.vector;
-    const filepath: []const u8 = if (args.len < 2) "./tests/list_sorting.in" else std.mem.span(args[1]);
+    const filepath: []const u8 = if (args.len < 2) "./tests/conditionals.in" else std.mem.span(args[1]);
     var sthreaded = Io.Threaded.init_single_threaded;
     defer sthreaded.deinit();
     const io = sthreaded.io();

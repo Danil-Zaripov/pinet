@@ -13,6 +13,7 @@ const Agent = Types.Agent;
 const Value = Types.Value;
 const Name = Types.Name;
 const Equation = Types.Equation;
+const Special = Types.Special;
 
 pub fn name_name(vm: *VM, lname: *Name, rname: *Name) !void {
     // I'm sure this is very unintuitive,
@@ -57,7 +58,7 @@ pub fn name_agent(vm: *VM, name: *Name, agent: *Agent) !void {
             .lhs = port,
             .rhs = Value{ .agent = agent },
         };
-        try vm.pushEquation(eq);
+        try vm.pushUrgent(eq);
     } else {
         name.port = Value{ .agent = agent };
     }
@@ -65,12 +66,69 @@ pub fn name_agent(vm: *VM, name: *Name, agent: *Agent) !void {
 
 // fn unwindAgent()
 
-fn evalCondition(lagent: *const Agent, ragent: *const Agent, conditions: *AST.Node(AST.Expression)) bool {
-    _ = lagent;
-    _ = ragent;
-    _ = conditions;
+const Condition = Instruction.CompiledCondition;
+
+const SimpleValue = union(enum) {
+    bool: bool,
+    special: Special,
+};
+
+const EvaluationError = error{
+    BadSecondaryValue,
+};
+
+fn evalCondition(vm: *const VM, lagent: *const Agent, ragent: *const Agent, condition: *Condition) EvaluationError!SimpleValue {
     // Compilation of expressions is needed.
-    return false;
+    switch (condition.*) {
+        .atom => |atom| {
+            switch (atom) {
+                .special => |special| {
+                    return .{ .special = special };
+                },
+                .port => |port| {
+                    const a = if (port.owner == .lhs) lagent else ragent;
+                    const node = a.ports[port.idx].?;
+                    node_blk: switch (node) {
+                        .agent => |agent| {
+                            const number_id = Builtin.BuiltinNameMap.get(Builtin.number_builtin_ident).?;
+                            if (agent.id == number_id) {
+                                return .{ .special = agent.ports[0].?.special };
+                            } else {
+                                std.debug.print("Port wasn't a number\n", .{});
+                                return EvaluationError.BadSecondaryValue;
+                            }
+                        },
+                        .name => |name| {
+                            if (name.port) |name_port| {
+                                continue :node_blk name_port;
+                            } else {
+                                std.debug.print("Port name was empty\n", .{});
+                                return EvaluationError.BadSecondaryValue;
+                            }
+                        },
+                        else => unreachable,
+                    }
+                },
+            }
+        },
+        .binary_op => |binary| {
+            const lhs = try evalCondition(vm, lagent, ragent, binary.lhs);
+            const rhs = try evalCondition(vm, lagent, ragent, binary.rhs);
+            if (lhs == .special and rhs == .special) {
+                switch (binary.op) {
+                    .eq => {
+                        return SimpleValue{ .bool = lhs.special.integer == rhs.special.integer };
+                    },
+                    else => unreachable,
+                }
+            } else {
+                unreachable;
+            }
+        },
+        .unary_op => unreachable,
+    }
+
+    unreachable;
 }
 
 pub fn agent_agent(vm: *VM, _lagent: *Agent, _ragent: *Agent) !void {
@@ -126,8 +184,14 @@ pub fn agent_agent(vm: *VM, _lagent: *Agent, _ragent: *Agent) !void {
 
     for (conditioned_rules) |conditioned| {
         if (conditioned.condition) |condition| {
-            if (evalCondition(lagent, ragent, condition)) {
+            const evaluated = evalCondition(vm, lagent, ragent, condition) catch |err| errblk: {
+                switch (err) {
+                    EvaluationError.BadSecondaryValue => break :errblk SimpleValue{ .bool = false },
+                }
+            };
+            if (evaluated == .bool and evaluated.bool) {
                 try VM.execInstructions(vm, conditioned.instructions, lagent, ragent);
+                return;
             }
         } else {
             try VM.execInstructions(vm, conditioned.instructions, lagent, ragent);

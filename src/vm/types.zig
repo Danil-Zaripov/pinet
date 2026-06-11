@@ -62,6 +62,30 @@ pub const Special = union(enum) {
             },
         }
     }
+    pub fn sub(self: Special, other: Special) Special {
+        switch (self) {
+            .float => |lfloat| {
+                switch (other) {
+                    .float => |rfloat| {
+                        return Special{ .float = lfloat - rfloat };
+                    },
+                    .integer => |rinteger| {
+                        return Special{ .float = lfloat - @as(f32, @floatFromInt(rinteger)) };
+                    },
+                }
+            },
+            .integer => |linteger| {
+                switch (other) {
+                    .float => |rfloat| {
+                        return Special{ .float = @as(f32, @floatFromInt(linteger)) - rfloat };
+                    },
+                    .integer => |rinteger| {
+                        return Special{ .integer = linteger - rinteger };
+                    },
+                }
+            },
+        }
+    }
     pub fn mul(self: Special, other: Special) Special {
         switch (self) {
             .float => |lfloat| {

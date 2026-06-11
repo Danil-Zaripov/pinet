@@ -11,7 +11,18 @@ const Value = Types.Value;
 const Equation = Types.Equation;
 
 const RegisterId = usize;
-const PortIdx = usize;
+
+pub const Port = struct {
+    owner: Owner,
+    idx: Idx,
+
+    pub const Idx = usize;
+
+    pub const Owner = enum {
+        rhs,
+        lhs,
+    };
+};
 
 pub const RuleKey = struct { lhs: Agent.Id, rhs: Agent.Id };
 
@@ -30,7 +41,7 @@ const Tag = union(enum) {
     MkAgent: Agent.Id,
     MkName,
     MkSpecial: Special,
-    PutIntoPort: PortIdx,
+    PutIntoPort: Port.Idx,
     Push,
     LoadArguments,
 };
@@ -56,7 +67,7 @@ pub fn mk_special(special: Special, loc: RegisterId) Instruction {
     };
 }
 
-pub fn put_into_port(port_idx: PortIdx, src: RegisterId, dest: RegisterId) Instruction {
+pub fn put_into_port(port_idx: Port.Idx, src: RegisterId, dest: RegisterId) Instruction {
     return .{
         .tag = .{ .PutIntoPort = port_idx },
         .operand1 = src,
@@ -114,7 +125,33 @@ pub fn debugPrintInstruction(vm: *const VM, instrs: []Instruction) !void {
 
 pub const CompiledRule = struct { RuleKey, []ConditionedRule };
 
-pub const ConditionedRule = struct { condition: ?*AST.Node(AST.Expression), instructions: CompiledPairs };
+pub const ConditionedRule = struct { condition: ?*CompiledCondition, instructions: CompiledPairs };
+
+pub const CompiledCondition = union(enum) {
+    binary_op: Binary,
+    unary_op: Unary,
+    atom: Atom,
+
+    pub const Atom = union(enum) {
+        special: Special,
+        port: Port,
+    };
+
+    pub const Binary = struct {
+        lhs: *CompiledCondition,
+        rhs: *CompiledCondition,
+        op: Op,
+
+        pub const Op = AST.Expression.BinaryExpr.Tag;
+    };
+
+    pub const Unary = struct {
+        item: *CompiledCondition,
+        op: Op,
+
+        pub const Op = AST.Expression.UnaryExpr.Tag;
+    };
+};
 
 const CompiledPairs = []Instruction;
 
@@ -288,6 +325,42 @@ pub fn compilePairs(runtime: *Runtime, lhs: AST.Object, rhs: AST.Object, pairs: 
     return try list.toOwnedSlice(runtime.allocator);
 }
 
+pub fn compileCondition(runtime: *Runtime, port_info: *const std.StringHashMap(Port), condition: *AST.Node(AST.Expression)) !*CompiledCondition {
+    const compiled = try runtime.allocator.create(CompiledCondition);
+    switch (condition.val) {
+        .atom => |atom_node| {
+            const atom = atom_node.val;
+            if (atom.portlist) |ports| {
+                if (atom.name[0] == '#') {
+                    const num = ports[0].val.name;
+                    compiled.* = .{ .atom = .{ .special = try VM.getNumberType(num) } };
+                }
+            } else {
+                if (port_info.get(atom.name)) |port_idx| {
+                    compiled.* = .{ .atom = .{ .port = port_idx } };
+                } else {
+                    return error.UnknownName;
+                }
+            }
+        },
+        .binary_op => |binary| {
+            compiled.* = .{ .binary_op = .{
+                .op = binary.tag,
+                .lhs = try compileCondition(runtime, port_info, binary.lhs),
+                .rhs = try compileCondition(runtime, port_info, binary.rhs),
+            } };
+        },
+        .unary_op => |unary| {
+            compiled.* = .{ .unary_op = .{
+                .op = unary.tag,
+                .item = try compileCondition(runtime, port_info, unary.item),
+            } };
+        },
+    }
+
+    return compiled;
+}
+
 pub fn compileRule(runtime: *Runtime, rule: AST.Rule) !CompiledRule {
     const lhs_id = try runtime.agent_id_map.get(rule.lhs.val.name);
     const rhs_id = try runtime.agent_id_map.get(rule.rhs.val.name);
@@ -297,11 +370,20 @@ pub fn compileRule(runtime: *Runtime, rule: AST.Rule) !CompiledRule {
 
     var lst = try std.ArrayList(ConditionedRule).initCapacity(runtime.allocator, 1);
 
+    var port_info: std.StringHashMap(Port) = .init(runtime.allocator);
+
+    for (rule.lhs.val.portlist.?, 0..) |port, idx| {
+        try port_info.put(port.val.name, Port{ .idx = idx, .owner = .lhs });
+    }
+
+    for (rule.rhs.val.portlist.?, 0..) |port, idx| {
+        try port_info.put(port.val.name, Port{ .idx = idx, .owner = .rhs });
+    }
+
     for (rule.rule_exprs) |rule_expr| {
         const instructions = try compilePairs(runtime, rule.lhs.val, rule.rhs.val, rule_expr.pairs);
         try lst.append(runtime.allocator, .{
-            // TODO: compile conditions
-            .condition = rule_expr.expr,
+            .condition = if (rule_expr.expr) |condition| try compileCondition(runtime, &port_info, condition) else null,
             .instructions = instructions,
         });
     }
