@@ -56,7 +56,7 @@ pub fn deinit() void {
     BuiltinTable.deinit();
 }
 
-pub const number_builtin_ident = @import("../parser.zig").number_special_ident;
+pub const number_builtin_ident = @import("../ast.zig").number_special_ident;
 
 // Making this empty makes there be no
 // builtin agents. TODO: use compile flag for that

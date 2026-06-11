@@ -26,7 +26,7 @@ pub fn main(init: std.process.Init) !void {
 
     const tokens = try pinet.Lexer.tokenize(gpa, contents);
     defer gpa.free(tokens);
-    var parser = try pinet.Parser.Parser.init(tokens, gpa);
+    var parser = try pinet.Parser.init(tokens, gpa);
     defer parser.deinit(gpa);
     const program = parser.parseProgram() catch |err| {
         if (err == error.ErrorDuringParsing) {

@@ -1,0 +1,99 @@
+pub const number_special_ident = "#number";
+pub const cons_list_ident = "Cons";
+pub const nil_list_ident = "Nil";
+
+pub const TokenSlice = struct {
+    start: u32,
+    end: u32,
+};
+
+pub fn Node(comptime T: type) type {
+    return struct {
+        val: T,
+        tslice: TokenSlice,
+    };
+}
+
+pub const Name = struct {
+    val: []const u8,
+};
+
+// (Name or Agent) or Agent(...)
+// Think whether all agents should be in form Z(...)
+// or to allow Z without ()
+pub const Object = struct {
+    name: []const u8,
+    portlist: ?[]Node(Object),
+};
+
+pub const ActivePair = struct {
+    lhs: Node(Object),
+    rhs: Node(Object),
+};
+
+pub const Expression = union(enum) {
+    binary_op: BinaryExpr,
+    unary_op: UnaryExpr,
+    atom: Node(Object),
+
+    pub const BinaryExpr = struct {
+        lhs: *Node(Expression),
+        rhs: *Node(Expression),
+        tag: Tag,
+
+        pub const Tag = enum {
+            eq,
+            logic_or,
+            logic_and,
+            less,
+            leq,
+            greater,
+            geq,
+
+            pub fn symbol(self: Tag) []const u8 {
+                return switch (self) {
+                    .eq => "==",
+                    .logic_or => "||",
+                    .logic_and => "&&",
+                    .less => "<",
+                    .leq => "<=",
+                    .greater => ">",
+                    .geq => ">=",
+                };
+            }
+        };
+    };
+
+    pub const UnaryExpr = struct {
+        item: *Node(Expression),
+        tag: Tag,
+
+        pub const Tag = enum {
+            not,
+        };
+    };
+};
+
+pub const RuleExpression = struct {
+    expr: ?*Node(Expression),
+    pairs: []Node(ActivePair),
+};
+
+pub const Rule = struct {
+    lhs: Node(Object),
+    rhs: Node(Object),
+    rule_exprs: []RuleExpression,
+};
+
+pub const Statement = union(enum) {
+    free_stmt: []const Name,
+    active_pair: ActivePair,
+    rule: Rule,
+    print_stmt: Name,
+    use_stmt, // TODO
+    const_stmt,
+};
+
+pub const Program = struct {
+    statements: []Node(Statement),
+};

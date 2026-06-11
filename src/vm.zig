@@ -1,5 +1,5 @@
 const std = @import("std");
-const AST = @import("parser.zig");
+const AST = @import("ast.zig");
 const Lexer = @import("lexer.zig");
 const Types = @import("vm/types.zig");
 const Runtime = @import("vm/runtime.zig");
