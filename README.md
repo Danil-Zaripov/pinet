@@ -24,13 +24,14 @@ Pinet is in early development.
 - [x] number support
 - [x] lists support
 - [x] conditionals in rules
-- [ ] args parsing
+- [ ] rules for wildcard agents (`Agent() >< any => ...;`)
+- [ ] parallel evaluation (using std.Io primitives or hand-written)
+- [ ] args parsing using clap
 - [ ] golden tests using zig build system
-- [ ] optional debug printing
+- [ ] benchmarking top-level statements
+- [ ] advanced memory management (fast and thread-safe slab allocation or normal allocation for agents with arbitrary arity)
 - [ ] error handling on all stages
-- [ ] rules for wildcart agents (`Agent() >< any => ...;`)
 - [ ] research into name chaining (a lot of unnecessary temporary names get created during execution, which leads to increased memory consumption)
-- [ ] multithreading
 
 # Acknowledgement & Lineage
 
