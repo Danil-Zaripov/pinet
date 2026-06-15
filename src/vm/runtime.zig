@@ -13,7 +13,7 @@ const Agent = Types.Agent;
 const Value = Types.Value;
 const Name = Types.Name;
 const Equation = Types.Equation;
-const RuleKey = Instruction.RuleKey;
+const AgentsKey = Instruction.AgentsKey;
 const ConditionedRule = Instruction.ConditionedRule;
 
 pub const IdCountingHashMap = struct {
@@ -86,21 +86,35 @@ pub const ArityMap = struct {
     }
 };
 
-pub const RuleTable = struct {
-    map: std.AutoHashMap(RuleKey, []ConditionedRule),
+pub const RuleSearchResult = struct {
+    rules: []ConditionedRule,
+    tag: Tag,
 
-    pub fn get(self: *RuleTable, ap: RuleKey) !struct { []ConditionedRule, bool } {
+    const Tag = enum {
+        normal,
+        swap,
+
+        // wildcard_lhs means that lhs is defined and rhs is a wildcard
+        wildcard_lhs,
+        wildcard_rhs,
+    };
+};
+
+pub const RuleTable = struct {
+    map: std.AutoHashMap(AgentsKey, []ConditionedRule),
+
+    pub fn get(self: *RuleTable, ap: AgentsKey) !RuleSearchResult {
         if (self.map.get(ap)) |rules| {
-            return .{ rules, false };
+            return .{ .rules = rules, .tag = .normal };
         } else if (self.map.get(.{ .lhs = ap.rhs, .rhs = ap.lhs })) |rules| {
-            return .{ rules, true };
+            return .{ .rules = rules, .tag = .swap };
         } else {
             return error.UnknownRule;
         }
     }
     pub fn init(allocator: std.mem.Allocator) RuleTable {
         return .{
-            .map = std.AutoHashMap(RuleKey, []ConditionedRule).init(allocator),
+            .map = std.AutoHashMap(AgentsKey, []ConditionedRule).init(allocator),
         };
     }
 };
@@ -120,6 +134,7 @@ equation_deque: std.Deque(Equation),
 // TODO: proper priority queue?
 urgent_deque: std.Deque(Equation),
 rule_table: RuleTable,
+wildcard_table: std.AutoHashMap(Agent.Id, []ConditionedRule),
 
 pub fn init(gpa: std.mem.Allocator) !Self {
     const arena = try gpa.create(std.heap.ArenaAllocator);
@@ -141,6 +156,7 @@ pub fn init(gpa: std.mem.Allocator) !Self {
         .urgent_deque = try std.Deque(Equation).initCapacity(allocator, 10),
         .agent_arities = try ArityMap.init(allocator),
         .rule_table = RuleTable.init(allocator),
+        .wildcard_table = std.AutoHashMap(Agent.Id, []ConditionedRule).init(allocator),
         .threaded = threaded,
         .io = threaded.io(),
     };

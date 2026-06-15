@@ -16,15 +16,8 @@ Note that this will compile in debug mode. For release mode use `-Doptimize=Rele
 
 ## Current state
 
-Pinet is in early development.
+Pinet is in early development. Single-threaded evaluation of interaction nets, based on Inpla model, is fully implemented. Here is what is lacking:
 
-- [x] custom rules
-- [x] single-threaded evaluation
-- [x] builtins (dups, erasers) using static virtual tables
-- [x] number support
-- [x] lists support
-- [x] conditionals in rules
-- [ ] rules for wildcard agents (`Agent() >< any => ...;`)
 - [ ] parallel evaluation (using std.Io primitives or hand-written)
 - [ ] args parsing using clap
 - [ ] golden tests using zig build system

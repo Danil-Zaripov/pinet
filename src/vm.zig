@@ -139,7 +139,7 @@ pub fn createObject(vm: *VirtualMachine, obj: AST.Object) !Value {
     unreachable;
 }
 
-pub fn execInstructions(vm: *VirtualMachine, instrs: []Instruction, lagent: *Agent, ragent: *Agent) !void {
+pub fn execInstructions(vm: *VirtualMachine, instrs: []Instruction, lagent: *Agent, ragent: *Agent, wildcarded: bool) !void {
     for (instrs) |instruction| {
         switch (instruction.tag) {
             .MkAgent => |id| {
@@ -167,7 +167,6 @@ pub fn execInstructions(vm: *VirtualMachine, instrs: []Instruction, lagent: *Age
             },
             .LoadArguments => {
                 const larity = vm.runtime.agent_arities.map.get(lagent.id).?;
-                const rarity = vm.runtime.agent_arities.map.get(ragent.id).?;
                 var idx: u16 = 0;
                 for (0..larity) |port_idx| {
                     // For some reason just assigning register to a port
@@ -177,9 +176,16 @@ pub fn execInstructions(vm: *VirtualMachine, instrs: []Instruction, lagent: *Age
                     vm.registers[idx].name.port = lagent.ports[port_idx];
                     idx += 1;
                 }
-                for (0..rarity) |port_idx| {
+                if (!wildcarded) {
+                    const rarity = vm.runtime.agent_arities.map.get(ragent.id).?;
+                    for (0..rarity) |port_idx| {
+                        vm.registers[idx] = .{ .name = try vm.name_heap.getOne() };
+                        vm.registers[idx].name.port = ragent.ports[port_idx];
+                        idx += 1;
+                    }
+                } else {
                     vm.registers[idx] = .{ .name = try vm.name_heap.getOne() };
-                    vm.registers[idx].name.port = ragent.ports[port_idx];
+                    vm.registers[idx].name.port = .{ .agent = ragent };
                     idx += 1;
                 }
             },
@@ -242,7 +248,11 @@ pub fn runProgram(vm: *VirtualMachine, program: AST.Program) !void {
                     const guard: [guard_size]u8 = comptime @splat('=');
                     std.debug.print("{s}\n", .{&guard});
                 }
-                try vm.runtime.rule_table.map.put(compiled_rule[0], compiled_rule[1]);
+                if (compiled_rule[0] == .agents) {
+                    try vm.runtime.rule_table.map.put(compiled_rule[0].agents, compiled_rule[1]);
+                } else {
+                    try vm.runtime.wildcard_table.put(compiled_rule[0].wildcard, compiled_rule[1]);
+                }
             },
             else => {
                 unreachable;

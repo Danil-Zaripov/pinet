@@ -14,7 +14,9 @@ const RegisterId = usize;
 
 pub const Port = struct {
     owner: Owner,
-    idx: Idx,
+
+    // Null means the owner is a name in case of a wildcard rule
+    idx: ?Idx,
 
     pub const Idx = usize;
 
@@ -24,7 +26,12 @@ pub const Port = struct {
     };
 };
 
-pub const RuleKey = struct { lhs: Agent.Id, rhs: Agent.Id };
+pub const AgentsKey = struct { lhs: Agent.Id, rhs: Agent.Id };
+
+pub const CompiledLhs = union(enum) {
+    agents: AgentsKey,
+    wildcard: Agent.Id,
+};
 
 const Instruction = @This();
 
@@ -89,41 +96,47 @@ pub fn load_arguments() Instruction {
     };
 }
 
-pub fn debugPrintInstruction(vm: *const VM, instrs: []Instruction) !void {
-    for (instrs) |instr| {
-        defer std.debug.print("\n\n", .{});
-        if (instr.tag != .LoadArguments) {
-            std.debug.print("REG{}", .{instr.operand1});
+pub fn debugPrintInstruction(vm: *const VM, conditioned_rules: []ConditionedRule) !void {
+    for (conditioned_rules, 0..) |conditioned_rule, idx| {
+        if (conditioned_rules.len > 1) {
+            std.debug.print("Condition {}\n\n", .{idx});
         }
-        if (instr.tag == .Push or instr.tag == .PutIntoPort) {
-            std.debug.print(" TO REG{}", .{instr.operand2});
-        }
-        std.debug.print(": ", .{});
-        switch (instr.tag) {
-            .MkAgent => |id| {
-                const name = vm.runtime.agent_id_map.findKey(id).?;
-                std.debug.print("MKAGENT {s}", .{name});
-            },
-            .Push => {
-                std.debug.print("PUSH", .{});
-            },
-            .MkName => {
-                std.debug.print("MKNAME", .{});
-            },
-            .LoadArguments => {
-                std.debug.print("LOAD ARGUMENTS", .{});
-            },
-            .PutIntoPort => |port| {
-                std.debug.print("PUT INTO {} PORT", .{port});
-            },
-            .MkSpecial => |special| {
-                std.debug.print("MKSPECIAL {any}", .{special});
-            },
+        const instrs = conditioned_rule.instructions;
+        for (instrs) |instr| {
+            defer std.debug.print("\n\n", .{});
+            if (instr.tag != .LoadArguments) {
+                std.debug.print("REG{}", .{instr.operand1});
+            }
+            if (instr.tag == .Push or instr.tag == .PutIntoPort) {
+                std.debug.print(" TO REG{}", .{instr.operand2});
+            }
+            std.debug.print(": ", .{});
+            switch (instr.tag) {
+                .MkAgent => |id| {
+                    const name = vm.runtime.agent_id_map.findKey(id).?;
+                    std.debug.print("MKAGENT {s}", .{name});
+                },
+                .Push => {
+                    std.debug.print("PUSH", .{});
+                },
+                .MkName => {
+                    std.debug.print("MKNAME", .{});
+                },
+                .LoadArguments => {
+                    std.debug.print("LOAD ARGUMENTS", .{});
+                },
+                .PutIntoPort => |port| {
+                    std.debug.print("PUT INTO {} PORT", .{port});
+                },
+                .MkSpecial => |special| {
+                    std.debug.print("MKSPECIAL {any}", .{special});
+                },
+            }
         }
     }
 }
 
-pub const CompiledRule = struct { RuleKey, []ConditionedRule };
+pub const CompiledRule = struct { CompiledLhs, []ConditionedRule };
 
 pub const ConditionedRule = struct { condition: ?*CompiledCondition, instructions: CompiledPairs };
 
@@ -298,19 +311,30 @@ pub fn compilePairs(runtime: *Runtime, lhs: AST.Object, rhs: AST.Object, pairs: 
         }
     }
 
-    for (rhs.portlist.?) |port_node| {
-        const port = port_node.val;
-        if (port.portlist) |_| {
-            return error.AgentInRhsArgument;
-        } else {
-            _ = scope.associate(port.name) catch |err| {
-                if (err == error.ValueExists) {
-                    return error.NameUsedTwice;
-                } else {
-                    return err;
-                }
-            };
+    // RHS may be a wildcard
+    if (rhs.portlist) |portlist| {
+        for (portlist) |port_node| {
+            const port = port_node.val;
+            if (port.portlist) |_| {
+                return error.AgentInRhsArgument;
+            } else {
+                _ = scope.associate(port.name) catch |err| {
+                    if (err == error.ValueExists) {
+                        return error.NameUsedTwice;
+                    } else {
+                        return err;
+                    }
+                };
+            }
         }
+    } else {
+        _ = scope.associate(rhs.name) catch |err| {
+            if (err == error.ValueExists) {
+                return error.NameUsedTwice;
+            } else {
+                return err;
+            }
+        };
     }
 
     for (pairs) |node_pair| {
@@ -361,7 +385,48 @@ pub fn compileCondition(runtime: *Runtime, port_info: *const std.StringHashMap(P
     return compiled;
 }
 
+pub fn compileWildcard(runtime: *Runtime, agent: AST.Node(AST.Object), name: AST.Node(AST.Object), rule_exprs: []AST.RuleExpression) !CompiledRule {
+    const agent_id = try runtime.agent_id_map.get(agent.val.name);
+
+    _ = try runtime.agent_arities.get(agent_id, agent.val.portlist.?.len);
+
+    var lst = try std.ArrayList(ConditionedRule).initCapacity(runtime.allocator, 1);
+
+    var port_info: std.StringHashMap(Port) = .init(runtime.allocator);
+
+    for (agent.val.portlist.?, 0..) |port, idx| {
+        // agent is lhs by default
+        try port_info.put(port.val.name, Port{ .idx = idx, .owner = .lhs });
+    }
+
+    try port_info.put(name.val.name, Port{ .idx = null, .owner = .rhs });
+
+    for (rule_exprs) |rule_expr| {
+        const instructions = try compilePairs(runtime, agent.val, name.val, rule_expr.pairs);
+        try lst.append(runtime.allocator, .{
+            .condition = if (rule_expr.expr) |condition| try compileCondition(runtime, &port_info, condition) else null,
+            .instructions = instructions,
+        });
+    }
+
+    return CompiledRule{
+        .{ .wildcard = agent_id },
+        try lst.toOwnedSlice(runtime.allocator),
+    };
+}
+
 pub fn compileRule(runtime: *Runtime, rule: AST.Rule) !CompiledRule {
+    if (rule.lhs.val.portlist == null or rule.rhs.val.portlist == null) {
+        // Wildcard rule
+        if (rule.lhs.val.portlist) |_| {
+            return try compileWildcard(runtime, rule.lhs, rule.rhs, rule.rule_exprs);
+        } else if (rule.rhs.val.portlist) |_| {
+            return try compileWildcard(runtime, rule.rhs, rule.lhs, rule.rule_exprs);
+        } else {
+            unreachable;
+        }
+    }
+
     const lhs_id = try runtime.agent_id_map.get(rule.lhs.val.name);
     const rhs_id = try runtime.agent_id_map.get(rule.rhs.val.name);
 
@@ -389,7 +454,7 @@ pub fn compileRule(runtime: *Runtime, rule: AST.Rule) !CompiledRule {
     }
 
     return CompiledRule{
-        .{ .lhs = lhs_id, .rhs = rhs_id },
+        .{ .agents = .{ .lhs = lhs_id, .rhs = rhs_id } },
         try lst.toOwnedSlice(runtime.allocator),
     };
 }

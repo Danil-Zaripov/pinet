@@ -87,7 +87,9 @@ fn evalCondition(vm: *const VM, lagent: *const Agent, ragent: *const Agent, cond
                 },
                 .port => |port| {
                     const a = if (port.owner == .lhs) lagent else ragent;
-                    const node = a.ports[port.idx].?;
+                    // constCast !!!
+                    const node = if (port.idx) |port_idx| a.ports[port_idx].? else Value{ .agent = @constCast(a) };
+
                     node_blk: switch (node) {
                         .agent => |agent| {
                             const number_id = Builtin.BuiltinNameMap.get(Builtin.number_builtin_ident).?;
@@ -177,12 +179,16 @@ pub fn agent_agent(vm: *VM, _lagent: *Agent, _ragent: *Agent) !void {
         }
     }
 
-    defer VM.Heap(Agent).freeOne(lagent);
-    defer VM.Heap(Agent).freeOne(ragent);
-
     // Not builtin
-    const rule = vm.runtime.rule_table.get(.{ .lhs = lagent.id, .rhs = ragent.id }) catch |err| {
+    const search_result = vm.runtime.rule_table.get(.{ .lhs = lagent.id, .rhs = ragent.id }) catch |err| rule_blk: {
         if (err == error.UnknownRule) {
+            // The rule may still be defined as wildcard
+            if (vm.runtime.wildcard_table.get(lagent.id)) |wildcard_rule| {
+                break :rule_blk Runtime.RuleSearchResult{ .rules = wildcard_rule, .tag = .wildcard_lhs };
+            } else if (vm.runtime.wildcard_table.get(ragent.id)) |wildcard_rule| {
+                break :rule_blk Runtime.RuleSearchResult{ .rules = wildcard_rule, .tag = .wildcard_rhs };
+            }
+
             std.debug.print("Unknown rule {s} - {s}\n", .{
                 vm.runtime.agent_id_map.findKey(lagent.id).?,
                 vm.runtime.agent_id_map.findKey(ragent.id).?,
@@ -191,33 +197,51 @@ pub fn agent_agent(vm: *VM, _lagent: *Agent, _ragent: *Agent) !void {
         return err;
     };
 
-    if (rule[1]) {
-        std.mem.swap(*Agent, &lagent, &ragent);
-    }
+    var wildcarded: bool = false;
 
-    const conditioned_rules = rule[0];
+    evaluation: switch (search_result.tag) {
+        .normal => {
+            // We don't free the ragent in case it's wildcarded
+            // because it functions like a name and will interact
+            // later
+            defer VM.Heap(Agent).freeOne(lagent);
+            defer if (!wildcarded) VM.Heap(Agent).freeOne(ragent);
 
-    for (conditioned_rules) |conditioned| {
-        if (conditioned.condition) |condition| {
-            const evaluated = evalCondition(vm, lagent, ragent, condition) catch |err| errblk: {
-                switch (err) {
-                    EvaluationError.BadSecondaryValue => break :errblk SimpleValue{ .bool = false },
-                    // There probably should be some other error handling in case of bad arguments
-                    // but since many things can go badly, we can simply ignore it?
-                    // TODO: research into more constraining conditions
-                    EvaluationError.WrongArgument => break :errblk SimpleValue{ .bool = false },
+            const conditioned_rules = search_result.rules;
+            for (conditioned_rules) |conditioned| {
+                if (conditioned.condition) |condition| {
+                    const evaluated = evalCondition(vm, lagent, ragent, condition) catch |err| errblk: {
+                        switch (err) {
+                            EvaluationError.BadSecondaryValue => break :errblk SimpleValue{ .bool = false },
+                            // There probably should be some other error handling in case of bad arguments
+                            // but since many things can go badly, we can simply ignore it?
+                            // TODO: research into more constraining conditions
+                            EvaluationError.WrongArgument => break :errblk SimpleValue{ .bool = false },
+                        }
+                    };
+                    if (evaluated == .bool and evaluated.bool) {
+                        try VM.execInstructions(vm, conditioned.instructions, lagent, ragent, wildcarded);
+                        return;
+                    }
+                } else {
+                    try VM.execInstructions(vm, conditioned.instructions, lagent, ragent, wildcarded);
+                    return;
                 }
-            };
-            if (evaluated == .bool and evaluated.bool) {
-                try VM.execInstructions(vm, conditioned.instructions, lagent, ragent);
-                return;
             }
-        } else {
-            try VM.execInstructions(vm, conditioned.instructions, lagent, ragent);
-            return;
-        }
+        },
+        .swap => {
+            std.mem.swap(*Agent, &lagent, &ragent);
+            continue :evaluation .normal;
+        },
+        .wildcard_lhs => {
+            wildcarded = true;
+            continue :evaluation .normal;
+        },
+        .wildcard_rhs => {
+            std.mem.swap(*Agent, &lagent, &ragent);
+            continue :evaluation .wildcard_lhs;
+        },
     }
-    return error.UnknownRule;
 }
 
 pub fn evalEquation(vm: *VM, eq: Equation) !void {

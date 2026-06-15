@@ -1,26 +1,26 @@
-Fact(r) >< (x)
+Fact(r) >< x
 | x == 1 => r ~ x
 | otherwise =>
     Dup(x1, x2) ~ x,
     Sub(w, 1) ~ x1,
-    Fact(w') ~ (w),
+    Fact(w') ~ w,
     Mul(r, x2) ~ w';
 
-Fact(r) ~ (10);
+Fact(r) ~ 10;
 
 r;
 
-Fib'(r, p1, p2) >< (n)
+Fib'(r, p1, p2) >< n
 | n == 0 => r ~ p2, Eraser() ~ (p1, n)
 | otherwise =>
     Sub(n', 1) ~ n,
     Dup(p1', p1'') ~ p1,
     Add(new_p1, p1') ~ p2,
-    Fib'(r, new_p1, p1'') ~ (n');
+    Fib'(r, new_p1, p1'') ~ n';
 
-Fib(r) >< (n) =>
-    Fib'(r, 1, 0) ~ (n);
+Fib(r) >< n =>
+    Fib'(r, 1, 0) ~ n;
 
-Fib(r1) ~ (10);
+Fib(r1) ~ 10;
 
 r1;

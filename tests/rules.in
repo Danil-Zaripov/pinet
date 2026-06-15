@@ -10,8 +10,11 @@ Mul(r, x) >< S(y) =>
     Mul(w, x1) ~ y,
     Add(r, w) ~ x2;
 
-Mul(r,x) >< Z() =>
-    r ~ Z(),
+
+// Wildcard here is unnecessary,
+// placed for demonstration purposes
+Mul(r, x) >< y =>
+    r ~ y,
     x ~ Eraser();
 
 a ~ S(S(Z()));
