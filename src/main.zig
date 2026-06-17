@@ -3,14 +3,45 @@ const Io = std.Io;
 
 const pinet = @import("pinet");
 
-// TODO: normal args parsing using clap
+const clap = @import("clap");
+
+const help =
+    \\-h, --help               Display this help and exit.
+    \\-t, --threads <usize>    Specify number of threads to be run on (this does not work yet).
+    \\-f, --filepath <str>     Specify file to be interpreted. Default: ./tests/list_sorting.in
+    \\
+;
+const params = clap.parseParamsComptime(help);
+
+// TODO: make it less cramped
 pub fn main(init: std.process.Init) !void {
     const gpa = init.gpa;
-    const args = init.minimal.args.vector;
-    const filepath: []const u8 = if (args.len < 2) "./tests/conditionals.in" else std.mem.span(args[1]);
     var sthreaded = Io.Threaded.init_single_threaded;
     defer sthreaded.deinit();
     const io = sthreaded.io();
+
+    var diag = clap.Diagnostic{};
+    var res = clap.parse(clap.Help, &params, clap.parsers.default, init.minimal.args, .{
+        .diagnostic = &diag,
+        .allocator = init.gpa,
+    }) catch |err| {
+        // Report useful error and exit.
+        try diag.reportToFile(init.io, .stderr(), err);
+        return err;
+    };
+    defer res.deinit();
+
+    var filepath: []const u8 = "./tests/list_sorting.in";
+
+    if (res.args.help != 0) {
+        var stdio = std.Io.File.stdin().writer(io, &.{});
+        try stdio.interface.print("{s}", .{help});
+        return;
+    }
+    if (res.args.threads) |n|
+        std.debug.print("you specified -t {}, but it is not yet developed.\n", .{n});
+    if (res.args.filepath) |fp|
+        filepath = fp;
 
     const max_file_bytes = 10 * 1024 * 1024;
     const contents = try Io.Dir.readFileAllocOptions(

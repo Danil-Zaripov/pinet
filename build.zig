@@ -51,6 +51,9 @@ pub fn build(b: *std.Build) void {
         // .use_llvm = true,
     });
 
+    const clap = b.dependency("clap", .{});
+    exe.root_module.addImport("clap", clap.module("clap"));
+
     const debug_printing = DebugPrintConfig{
         .print_compiled_instructions = b.option(bool, "print-compiled-instructions", "print compiled instructions") orelse false,
         .print_interactions = b.option(bool, "print-interactions", "print interaction points when they happen") orelse false,

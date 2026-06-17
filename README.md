@@ -19,7 +19,6 @@ Note that this will compile in debug mode. For release mode use `-Doptimize=Rele
 Pinet is in early development. Single-threaded evaluation of interaction nets, based on Inpla model, is fully implemented. Here is what is lacking:
 
 - [ ] parallel evaluation (using std.Io primitives or hand-written)
-- [ ] args parsing using clap
 - [ ] golden tests using zig build system
 - [ ] benchmarking top-level statements
 - [ ] advanced memory management (fast and thread-safe slab allocation or normal allocation for agents with arbitrary arity)
