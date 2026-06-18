@@ -39,3 +39,15 @@ Fib(r) >< Z() =>
 
 Fib(r3) ~ S(S(S(S(S(S(S(S(Z()))))))));
 r3;
+
+
+// Weird nets example
+F(a, b) >< Number(x) =>
+  Dup(x1, x2) ~ x,
+  Add(a, 1) ~ x1,
+  Add(b, 2) ~ x2;
+
+F(Add(r4, b1), b1) ~ Number(3);
+
+// Should print: "#number(9)"
+r4;
