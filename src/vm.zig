@@ -10,7 +10,7 @@ const Printing = @import("vm/printing.zig");
 const memory = @import("vm/memory.zig");
 pub const Heap = memory.Heap;
 
-pub const Config = @import("config");
+pub const Config = @import("root.zig").Config;
 
 const Agent = Types.Agent;
 const Value = Types.Value;
