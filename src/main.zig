@@ -40,16 +40,17 @@ pub fn main(init: std.process.Init) !void {
     }
     if (res.args.threads) |n|
         std.debug.print("you specified -t {}, but it is not yet developed.\n", .{n});
-    if (res.args.filepath) |fp|
+    if (res.args.filepath) |fp| {
         filepath = fp;
-
-    const max_file_bytes = 10 * 1024 * 1024;
+    } else {
+        std.debug.print("File not specified, executing {s}\nConsider using \"--help\"\n", .{filepath});
+    }
     const contents = try Io.Dir.readFileAllocOptions(
         Io.Dir.cwd(),
         io,
         filepath,
         gpa,
-        .limited(max_file_bytes),
+        .unlimited,
         .of(u8),
         0,
     );
@@ -61,13 +62,12 @@ pub fn main(init: std.process.Init) !void {
     defer parser.deinit(gpa);
     const program = parser.parseProgram() catch |err| {
         if (err == error.ErrorDuringParsing) {
-            const messageLine = try parser.err.?.messageLine(gpa, &parser);
+            const messageLine = try parser.err.?.messageLine(&parser);
             std.debug.print("{s}\n", .{messageLine});
-            gpa.free(messageLine);
         }
         return err;
     };
-    var runtime = try pinet.Runtime.init(gpa);
+    var runtime = try pinet.Runtime.init(gpa, filepath);
     defer runtime.deinit(gpa);
     var vm = try pinet.VM.init(gpa, &runtime);
     defer vm.deinit();

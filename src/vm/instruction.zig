@@ -96,7 +96,7 @@ pub fn load_arguments() Instruction {
     };
 }
 
-pub fn debugPrintInstruction(vm: *const VM, conditioned_rules: []ConditionedRule) !void {
+pub fn debugPrintInstruction(runtime: *const Runtime, conditioned_rules: []ConditionedRule) !void {
     for (conditioned_rules, 0..) |conditioned_rule, idx| {
         if (conditioned_rules.len > 1) {
             std.debug.print("Condition {}\n\n", .{idx});
@@ -113,7 +113,7 @@ pub fn debugPrintInstruction(vm: *const VM, conditioned_rules: []ConditionedRule
             std.debug.print(": ", .{});
             switch (instr.tag) {
                 .MkAgent => |id| {
-                    const name = vm.runtime.agent_id_map.findKey(id).?;
+                    const name = runtime.agent_id_map.findKey(id).?;
                     std.debug.print("MKAGENT {s}", .{name});
                 },
                 .Push => {

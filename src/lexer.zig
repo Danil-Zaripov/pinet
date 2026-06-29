@@ -22,6 +22,7 @@ pub const Token = struct {
         identifier,
         string_literal,
         keyword_const,
+        keyword_use,
         keyword_free,
         keyword_otherwise,
         numeric_literal,
@@ -61,6 +62,7 @@ pub const Token = struct {
                 .identifier, .eof, .string_literal, .numeric_literal, .invalid => null,
                 .keyword_free => "free",
                 .keyword_const => "const",
+                .keyword_use => "use",
                 .keyword_otherwise => "otherwise",
                 .lparen => "(",
                 .rparen => ")",
@@ -107,6 +109,7 @@ pub const Token = struct {
         .{ "free", .keyword_free },
         .{ "const", .keyword_const },
         .{ "otherwise", .keyword_otherwise },
+        .{ "use", .keyword_use },
     });
 
     pub fn getKeyword(content: []const u8) ?Tag {
@@ -350,7 +353,7 @@ pub const Tokenizer = struct {
                         }
                     },
                     '"' => {
-                        const content = self.buffer[result.loc.start.index..self.index];
+                        const content = self.buffer[result.loc.start.index + 1 .. self.index];
                         result.content = content;
                         self.advance();
                     },

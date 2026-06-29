@@ -1,0 +1,5 @@
+use "nested/rule_importer.in";
+
+A(r) ~ B();
+
+r;

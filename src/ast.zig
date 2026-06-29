@@ -94,7 +94,7 @@ pub const Statement = union(enum) {
     active_pair: ActivePair,
     rule: Rule,
     print_stmt: Name,
-    use_stmt, // TODO
+    use_stmt: []const u8,
     const_stmt,
 };
 

@@ -9,7 +9,7 @@ Install zig compiler v0.16, then it's simple:
 ```
 $ zig build
 $ zig build test
-$ zig build run -- ./tests/list_sorting.in
+$ zig build run -- -f ./tests/list_sorting.in
 ```
 
 Note that this will compile in debug mode. For release mode use `-Doptimize=ReleaseFast`.
@@ -18,7 +18,7 @@ Note that this will compile in debug mode. For release mode use `-Doptimize=Rele
 
 Pinet is in early development. Single-threaded evaluation of interaction nets, based on Inpla model, is fully implemented. Here is what is lacking:
 
-- [ ] use and free statements
+- [ ] free statements
 - [ ] parallel evaluation (using std.Io primitives or hand-written)
 - [ ] golden tests using zig build system
 - [ ] benchmarking top-level statements

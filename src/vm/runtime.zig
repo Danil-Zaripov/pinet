@@ -2,6 +2,7 @@ const std = @import("std");
 const Types = @import("types.zig");
 const Instruction = @import("instruction.zig");
 const Builtin = @import("builtin.zig");
+const Importer = @import("importer.zig");
 // Runtime module
 // for anything shared in the vm
 
@@ -135,8 +136,11 @@ equation_deque: std.Deque(Equation),
 urgent_deque: std.Deque(Equation),
 rule_table: RuleTable,
 wildcard_table: std.AutoHashMap(Agent.Id, []ConditionedRule),
+importer: Importer,
 
-pub fn init(gpa: std.mem.Allocator) !Self {
+main_file_path: []const u8,
+
+pub fn init(gpa: std.mem.Allocator, main_file_path: []const u8) !Self {
     const arena = try gpa.create(std.heap.ArenaAllocator);
     arena.* = std.heap.ArenaAllocator.init(gpa);
 
@@ -159,6 +163,8 @@ pub fn init(gpa: std.mem.Allocator) !Self {
         .wildcard_table = std.AutoHashMap(Agent.Id, []ConditionedRule).init(allocator),
         .threaded = threaded,
         .io = threaded.io(),
+        .importer = .init(gpa),
+        .main_file_path = main_file_path,
     };
 }
 pub fn deinit(self: *Self, gpa: std.mem.Allocator) void {
@@ -167,4 +173,5 @@ pub fn deinit(self: *Self, gpa: std.mem.Allocator) void {
     gpa.destroy(self.threaded);
     self.arena.deinit();
     gpa.destroy(self.arena);
+    self.importer.deinit();
 }

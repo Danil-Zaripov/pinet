@@ -228,6 +228,15 @@ pub fn runProgram(vm: *VirtualMachine, program: AST.Program) !void {
             .free_stmt => |names| {
                 _ = names;
             },
+            .use_stmt => |import_path| {
+                const final_import_path = if (std.fs.path.isAbsolute(import_path)) try vm.gpa.dupe(u8, import_path) else blk: {
+                    const dirname = std.fs.path.dirname(vm.runtime.main_file_path).?;
+                    break :blk try std.fs.path.resolve(vm.gpa, &.{ dirname, import_path });
+                };
+                defer vm.gpa.free(final_import_path);
+
+                try vm.runtime.importer.import(final_import_path, vm.runtime);
+            },
             .active_pair => |ap| {
                 const lhs = try createObject(vm, ap.lhs.val);
                 const rhs = try createObject(vm, ap.rhs.val);
@@ -253,7 +262,7 @@ pub fn runProgram(vm: *VirtualMachine, program: AST.Program) !void {
             .rule => |rule| {
                 const compiled_rule = try Instruction.compileRule(vm.runtime, rule);
                 if (Config.debug_printing.print_compiled_instructions) {
-                    try Instruction.debugPrintInstruction(vm, compiled_rule[1]);
+                    try Instruction.debugPrintInstruction(vm.runtime, compiled_rule[1]);
                     const guard_size = 40;
                     const guard: [guard_size]u8 = comptime @splat('=');
                     std.debug.print("{s}\n", .{&guard});

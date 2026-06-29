@@ -28,15 +28,17 @@ const ParserError = struct {
         };
     }
 
-    pub fn messageLine(self: *const ParserError, alloc: std.mem.Allocator, parser_data: *const Parser) ![]const u8 {
-        const loc = parser_data.tokens[self.pos].loc.start;
-        const msg = try self.message(alloc);
-        defer alloc.free(msg);
-        return std.fmt.allocPrint(alloc, "{}:{} {s}", .{ loc.line, loc.ch, msg });
+    /// Parser's arena owns the message.
+    pub fn messageLine(self: *const ParserError, parser: *Parser) ![]const u8 {
+        const loc = parser.tokens[self.pos].loc.start;
+        const msg = try self.message(parser.allocator);
+        defer parser.allocator.free(msg);
+
+        return std.fmt.allocPrint(parser.allocator, "{}:{} {s}", .{ loc.line, loc.ch, msg });
     }
 };
 
-const Error = error{
+pub const Error = error{
     ErrorDuringParsing,
 };
 
@@ -326,6 +328,7 @@ fn getTupleName(self: *Parser, size: usize) ![]u8 {
     return std.fmt.allocPrint(self.allocator, "Tuple{}", .{size});
 }
 
+/// Should be invoked when checking the peeking token, not advanced.
 fn expectTag(self: *Parser, expected: Token.Tag, actual: Token.Tag) Error!void {
     if (expected != actual) {
         self.unexpected_token(expected, actual);
@@ -445,6 +448,12 @@ pub fn parseStmt(self: *Parser) !?AST.Node(AST.Statement) {
                 },
             }
         },
+        .keyword_use => {
+            _ = self.advance();
+            try self.expectTag(.string_literal, self.peek().tag);
+            const str = self.advance();
+            ret.val = .{ .use_stmt = str.content.? };
+        },
         else => {
             self.err = .{
                 .pos = self.index - 1,
@@ -506,7 +515,7 @@ test "rule stmt" {
 
     const stmt = parser.parseStmt();
     if (parser.err) |err| {
-        std.debug.print("{s}\n", .{try err.messageLine(alloc, &parser)});
+        std.debug.print("{s}\n", .{try err.messageLine(&parser)});
     }
 
     switch ((try stmt).?.val) {
@@ -533,7 +542,7 @@ test "active pair stmt" {
 
     const stmt = parser.parseStmt();
     if (parser.err) |err| {
-        std.debug.print("{s}\n", .{try err.messageLine(alloc, &parser)});
+        std.debug.print("{s}\n", .{try err.messageLine(&parser)});
     }
 
     switch ((try stmt).?.val) {
@@ -559,7 +568,7 @@ test "free stmt" {
 
     const stmt = parser.parseStmt();
     if (parser.err) |err| {
-        std.debug.print("{s}\n", .{try err.messageLine(alloc, &parser)});
+        std.debug.print("{s}\n", .{try err.messageLine(&parser)});
     }
     switch ((try stmt).?.val) {
         .free_stmt => |list| {
@@ -647,7 +656,7 @@ test "parsing an expression" {
 
     const expr = parser.parseExpression(0) catch |err| {
         if (err == Error.ErrorDuringParsing) {
-            std.debug.print("{s}\n", .{try parser.err.?.messageLine(parser.allocator, &parser)});
+            std.debug.print("{s}\n", .{try parser.err.?.messageLine(&parser)});
         }
         return err;
     };
@@ -682,7 +691,7 @@ test "rule with conditionals" {
 
     const stmt = parser.parseStmt();
     if (parser.err) |err| {
-        std.debug.print("{s}\n", .{try err.messageLine(alloc, &parser)});
+        std.debug.print("{s}\n", .{try err.messageLine(&parser)});
     }
 
     switch ((try stmt).?.val) {
