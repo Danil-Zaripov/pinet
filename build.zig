@@ -9,6 +9,31 @@ pub const DebugPrintConfig = struct {
     benchmark: bool = false,
 };
 
+/// It doesn't return what you think it returns.
+pub fn setupGoldenTesting(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) *std.Build.Step.Run {
+    const golden_testing = b.addExecutable(.{
+        .name = "golden_test_runner",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/golden_testing.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{},
+        }),
+    });
+    b.installArtifact(golden_testing);
+    const golden_testing_run_step = b.step("golden-test", "Run golden testing");
+    const golden_testing_run_cmd = b.addRunArtifact(golden_testing);
+    golden_testing_run_step.dependOn(&golden_testing_run_cmd.step);
+    golden_testing_run_cmd.step.dependOn(b.getInstallStep());
+
+    // tests for the tester
+
+    const golden_testing_tests = b.addTest(.{
+        .root_module = golden_testing.root_module,
+    });
+    return b.addRunArtifact(golden_testing_tests);
+}
+
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
@@ -50,6 +75,7 @@ pub fn build(b: *std.Build) void {
     options.addOption(HeapKind, "heap", heap_kind);
 
     mod.addOptions("config", options);
+
     b.installArtifact(exe);
 
     const run_step = b.step("run", "Run pinet");
@@ -75,7 +101,10 @@ pub fn build(b: *std.Build) void {
 
     const run_exe_tests = b.addRunArtifact(exe_tests);
 
+    const run_golden_tests_tests = setupGoldenTesting(b, target, optimize);
+
     const test_step = b.step("test", "Run tests");
     test_step.dependOn(&run_mod_tests.step);
     test_step.dependOn(&run_exe_tests.step);
+    test_step.dependOn(&run_golden_tests_tests.step);
 }
