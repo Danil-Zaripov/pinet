@@ -83,7 +83,7 @@ fn heapDeinit(comptime T: type, heap: memory.Heap(T), gpa: std.mem.Allocator) vo
 }
 
 pub fn init(gpa: std.mem.Allocator, runtime: *Runtime) !Self {
-    const default_heap_size = 1024 * 1024 * 4;
+    const default_heap_size = 1024;
 
     return .{
         .runtime = runtime,

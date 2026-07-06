@@ -1,0 +1,16 @@
+Rule compilation error starting on line 3 index 5: Agent in the argument list
+
+   3|     Agent(
+          ^~~~~~
+   4|         a,
+      ~~~~~~~~~~
+   5|         b,
+      ~~~~~~~~~~
+   6|         c
+      ~~~~~~~~~
+   7|     ),
+      ~~~~~~
+
+Hint: What you're probably trying to do is nested pattern matching.
+Unfortunately it is either unimplemented or will never be implemented.
+Consider using real interaction nets nested pattern matching using additional helper agents.

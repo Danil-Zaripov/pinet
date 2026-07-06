@@ -1,0 +1,5 @@
+Rule compilation error on line 3 index 7: Unknown name
+| x < y_unknown => Eraser() ~ (a, b);
+      ^~~~~~~~~
+
+Hint: Check for typos.

@@ -10,7 +10,10 @@ pub const DebugPrintConfig = struct {
 };
 
 /// It doesn't return what you think it returns.
-pub fn setupGoldenTesting(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) *std.Build.Step.Run {
+pub fn setupGoldenTesting(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) struct {
+    *std.Build.Step.Run,
+    *std.Build.Step.Run,
+} {
     const golden_testing = b.addExecutable(.{
         .name = "golden_test_runner",
         .root_module = b.createModule(.{
@@ -23,6 +26,7 @@ pub fn setupGoldenTesting(b: *std.Build, target: std.Build.ResolvedTarget, optim
     b.installArtifact(golden_testing);
     const golden_testing_run_step = b.step("golden-test", "Run golden testing");
     const golden_testing_run_cmd = b.addRunArtifact(golden_testing);
+
     golden_testing_run_step.dependOn(&golden_testing_run_cmd.step);
     golden_testing_run_cmd.step.dependOn(b.getInstallStep());
 
@@ -31,7 +35,7 @@ pub fn setupGoldenTesting(b: *std.Build, target: std.Build.ResolvedTarget, optim
     const golden_testing_tests = b.addTest(.{
         .root_module = golden_testing.root_module,
     });
-    return b.addRunArtifact(golden_testing_tests);
+    return .{ golden_testing_run_cmd, b.addRunArtifact(golden_testing_tests) };
 }
 
 pub fn build(b: *std.Build) void {
@@ -101,10 +105,17 @@ pub fn build(b: *std.Build) void {
 
     const run_exe_tests = b.addRunArtifact(exe_tests);
 
-    const run_golden_tests_tests = setupGoldenTesting(b, target, optimize);
+    const golden_testing_run_cmd, const run_golden_tests_tests = setupGoldenTesting(b, target, optimize);
+
+    const generate_goldens = b.option(bool, "generate", "generate golden tests") orelse false;
+    const mode_str = if (generate_goldens) "generate" else "compare";
+
+    golden_testing_run_cmd.addArtifactArg(exe);
+    golden_testing_run_cmd.addArg(mode_str);
 
     const test_step = b.step("test", "Run tests");
     test_step.dependOn(&run_mod_tests.step);
     test_step.dependOn(&run_exe_tests.step);
     test_step.dependOn(&run_golden_tests_tests.step);
+    test_step.dependOn(&golden_testing_run_cmd.step);
 }

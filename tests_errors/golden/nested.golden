@@ -1,0 +1,6 @@
+Imported file tests_errors/nested/double_use.in
+Rule compilation error on line 2 index 3: Name used more than twice
+A(reused) >< x => reused ~ Eraser(), reused ~ x;
+  ^~~~~~                             ^~~~~~
+
+Hint: Names should be used exactly twice in one scope. Consider using duplicator agents (Dup2, Dup3, ...).

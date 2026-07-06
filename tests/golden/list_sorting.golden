@@ -1,0 +1,1 @@
+Cons(#number(1), Cons(#number(22), Cons(#number(13), Cons(#number(11), Cons(#number(2), Cons(#number(22), Cons(#number(4), Cons(#number(1), Cons(#number(0), Nil())))))))))

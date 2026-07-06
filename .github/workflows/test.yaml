@@ -38,9 +38,3 @@ jobs:
 
       - name: Build and test
         run: zig build test
-
-      - name: Build and run the default test
-        run: zig build run
-
-      - name: Run golden-like test
-        run: perl test.pl

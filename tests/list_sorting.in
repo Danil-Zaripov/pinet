@@ -7,7 +7,9 @@ Add(r, x) >< Nil() =>
     r ~ x;
 
 
-MakeRandomList(lst) ~ 10;
+// Kind of random list
+lst ~ [1, 22, 13, 11 , 2, 22, 4, 1, 0];
+
 
 Dup(lst1, lst2) ~ lst;
 
