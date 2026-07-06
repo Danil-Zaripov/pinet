@@ -2,8 +2,8 @@ const std = @import("std");
 
 const assert = std.debug.assert;
 
-const stdout_tests_path = "./tests";
-const stderr_tests_path = "./tests_errors";
+const stdout_tests_path = "tests";
+const stderr_tests_path = "tests_errors";
 
 pub const Lines = struct {
     lines: [][]const u8,
@@ -68,6 +68,8 @@ pub fn invokeAndCollectStdout(command: []const []const u8, gpa: std.mem.Allocato
     const result = std.process.run(gpa, io, .{
         .argv = command,
     }) catch return error.RunningFailed;
+
+    try std.testing.expectEqual(0, result.term.exited);
 
     gpa.free(result.stderr);
     return ret: {
@@ -402,7 +404,15 @@ pub fn main(init: std.process.Init) !void {
     const stderr_summary_text = try stderr_summary.getText(ctx.gpa);
     defer ctx.gpa.free(stderr_summary_text);
 
-    try stdout.interface.print("STDOUT: {s}STDERR: {s}", .{ stdout_summary_text, stderr_summary_text });
+    try stdout.interface.print(
+        "{s: <12}| {s}{s: <12}| {s}",
+        .{
+            stdout_tests_path,
+            stdout_summary_text,
+            stderr_tests_path,
+            stderr_summary_text,
+        },
+    );
     if (ctx.mode == .Compare) {
         try std.testing.expect(stdout_summary.comparison.failed == 0 and stderr_summary.comparison.failed == 0);
     }
