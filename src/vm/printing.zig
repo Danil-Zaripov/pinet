@@ -177,10 +177,10 @@ pub fn tryPrint(vm: *const VM, val: Value) !void {
         return err;
     };
     defer vm.gpa.free(bytes);
-
+    const string = std.mem.sliceTo(bytes, 0);
     var stdout = std.Io.File.stdout();
     var writer = stdout.writerStreaming(vm.runtime.io, &.{});
-    try writer.interface.print("{s}\n", .{bytes});
+    try writer.interface.print("{s}\n", .{string});
 }
 
 test {

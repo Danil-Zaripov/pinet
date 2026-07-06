@@ -5,10 +5,8 @@ const assert = std.debug.assert;
 const stdout_tests_path = "./tests";
 const stderr_tests_path = "./tests_errors";
 
-/// Copied from pinet.
 pub const Lines = struct {
     lines: [][]const u8,
-    gpa: std.mem.Allocator,
 
     /// 4 on line index, 2 on additional characters
     pub const enumeration_padding = 6;
@@ -27,7 +25,6 @@ pub const Lines = struct {
         }
         return .{
             .lines = try list.toOwnedSlice(gpa),
-            .gpa = gpa,
         };
     }
 
@@ -37,8 +34,8 @@ pub const Lines = struct {
         return std.fmt.allocPrint(arena, "{: >4}| {s}", .{ idx + 1, self.lines[idx] });
     }
 
-    pub fn deinit(self: *Lines) void {
-        self.gpa.free(self.lines);
+    pub fn deinit(self: Lines, gpa: std.mem.Allocator) void {
+        gpa.free(self.lines);
     }
 
     test "single line" {
@@ -46,7 +43,7 @@ pub const Lines = struct {
         const file = "hello world";
 
         var lines = try Lines.init(gpa, file);
-        defer lines.deinit();
+        defer lines.deinit(gpa);
 
         try std.testing.expectEqualStrings("hello world", lines.lines[0]);
     }
@@ -56,7 +53,7 @@ pub const Lines = struct {
         const file = "hello\nworld\n";
 
         var lines = try Lines.init(gpa, file);
-        defer lines.deinit();
+        defer lines.deinit(gpa);
 
         try std.testing.expectEqualStrings("hello", lines.lines[0]);
         try std.testing.expectEqualStrings("world", lines.lines[1]);
@@ -116,6 +113,17 @@ const LineDiff = struct {
     number: usize,
     expected: ?[]const u8,
     actual: ?[]const u8,
+
+    pub fn writeMessage(self: LineDiff, writer: *std.Io.Writer) !void {
+        try writer.print(
+            \\Difference on line {}.
+            \\Expected: {s}
+            \\  Actual: {s}
+            \\
+        ,
+            .{ self.number + 1, self.expected orelse eof_marker, self.actual orelse eof_marker },
+        );
+    }
 };
 
 const eof_marker = "<EOF>";
@@ -142,14 +150,28 @@ const ComparisonResult = union(enum) {
 };
 
 const Query = struct {
-    filepath: []const u8,
     goldenpath: []const u8,
-    what_are_we_getting: WhatAreWeGetting,
+    program_output: [:0]const u8,
+
+    pub fn init(ctx: Context, filepath: []const u8, goldenpath: []const u8, what_are_we_getting: WhatAreWeGetting) !Query {
+        const output = try switch (what_are_we_getting) {
+            .stdout => invokeAndCollectStdout(&.{ ctx.program_path, "-f", filepath }, ctx.gpa, ctx.io),
+            .stderr => invokeAndCollectStderr(&.{ ctx.program_path, "-f", filepath }, ctx.gpa, ctx.io),
+        };
+        return .{
+            .goldenpath = goldenpath,
+            .program_output = output,
+        };
+    }
+
+    pub fn deinit(self: Query, gpa: std.mem.Allocator) void {
+        gpa.free(self.program_output);
+    }
 };
 
 fn compare(ctx: Context, query: Query) !ComparisonResult {
     const cwd = std.Io.Dir.cwd();
-    const golden = cwd.readFileAllocOptions(ctx.io, query.goldenpath, ctx.gpa, .unlimited, .@"1", 0) catch |err| {
+    const golden = cwd.readFileAllocOptions(ctx.io, query.goldenpath, ctx.gpa, .unlimited, .of(u8), 0) catch |err| {
         if (err == error.FileNotFound) {
             return ComparisonResult.file_does_not_exist;
         } else {
@@ -158,17 +180,12 @@ fn compare(ctx: Context, query: Query) !ComparisonResult {
     };
     defer ctx.gpa.free(golden);
 
-    const output = try switch (query.what_are_we_getting) {
-        .stdout => invokeAndCollectStdout(&.{ ctx.program_path, "-f", query.filepath }, ctx.gpa, ctx.io),
-        .stderr => invokeAndCollectStderr(&.{ ctx.program_path, "-f", query.filepath, "--no-handled-error-trace" }, ctx.gpa, ctx.io),
-    };
-    defer ctx.gpa.free(output);
+    const output = query.program_output;
 
-    var golden_lines = try Lines.init(ctx.gpa, golden);
-    defer golden_lines.deinit();
-    var output_lines = try Lines.init(ctx.gpa, output);
-    defer output_lines.deinit();
-
+    const golden_lines = try Lines.init(ctx.gpa, golden);
+    defer golden_lines.deinit(ctx.gpa);
+    const output_lines = try Lines.init(ctx.gpa, output);
+    defer output_lines.deinit(ctx.gpa);
     for (0..@min(golden_lines.lines.len, output_lines.lines.len)) |idx| {
         if (!std.mem.eql(u8, output_lines.lines[idx], golden_lines.lines[idx])) {
             return ComparisonResult{
@@ -206,10 +223,6 @@ const GenerateResult = enum {
     created,
     updated,
     unchanged,
-
-    pub fn symbol(self: GenerateResult) []const u8 {
-        return @tagName(self);
-    }
 };
 
 pub fn generate(ctx: Context, query: Query) !GenerateResult {
@@ -223,11 +236,7 @@ pub fn generate(ctx: Context, query: Query) !GenerateResult {
         .line_diff => .updated,
     };
     if (result != .unchanged) {
-        const output = try switch (query.what_are_we_getting) {
-            .stdout => invokeAndCollectStdout(&.{ ctx.program_path, "-f", query.filepath }, ctx.gpa, ctx.io),
-            .stderr => invokeAndCollectStderr(&.{ ctx.program_path, "-f", query.filepath, "--no-handled-error-trace" }, ctx.gpa, ctx.io),
-        };
-        defer ctx.gpa.free(output);
+        const output = query.program_output;
 
         try cwd.writeFile(ctx.io, .{
             .data = std.mem.span(output.ptr),
@@ -289,15 +298,17 @@ pub fn processDirectory(ctx: Context, path_to_dir: []const u8, what_are_we_getti
     const dir = try cwd.openDir(ctx.io, path_to_dir_resolved, .{ .access_sub_paths = false, .iterate = true });
     defer dir.close(ctx.io);
 
+    var stderr = std.Io.File.stderr().writer(ctx.io, &.{});
+
     const golden_dir_path = try std.fs.path.resolve(arena, &.{ path_to_dir_resolved, "golden" });
 
     const golden_dir = dir.openDir(ctx.io, "golden", .{}) catch |err| err_blk: {
         if (err == error.FileNotFound) {
-            std.debug.print("{s} directory not found. Trying to create.\n", .{golden_dir_path});
+            try stderr.interface.print("{s} directory not found. Trying to create.\n", .{golden_dir_path});
             try dir.createDir(ctx.io, "golden", std.Io.Dir.Permissions.default_dir);
             break :err_blk try dir.openDir(ctx.io, "golden", .{});
         } else {
-            std.debug.print("Error when opening {s}: {s}\n", .{ golden_dir_path, @errorName(err) });
+            try stderr.interface.print("Error when opening {s}: {s}\n", .{ golden_dir_path, @errorName(err) });
             return err;
         }
     };
@@ -310,7 +321,6 @@ pub fn processDirectory(ctx: Context, path_to_dir: []const u8, what_are_we_getti
         .Generate => .{ .generated = .{} },
     };
 
-    var did_not_exist = false;
     while (try iter.next(ctx.io)) |entry| {
         if (std.mem.eql(u8, std.fs.path.extension(entry.name), ".in")) {
             const golden_path = blk: {
@@ -318,11 +328,9 @@ pub fn processDirectory(ctx: Context, path_to_dir: []const u8, what_are_we_getti
                 const golden_basename = try std.fmt.allocPrint(arena, "{s}.golden", .{basename_without_extension});
                 break :blk try std.fs.path.resolve(arena, &.{ path_to_dir_resolved, "golden", golden_basename });
             };
-            const query: Query = .{
-                .filepath = try std.fs.path.resolve(arena, &.{ path_to_dir_resolved, entry.name }),
-                .goldenpath = golden_path,
-                .what_are_we_getting = what_are_we_getting,
-            };
+            const filepath = try std.fs.path.resolve(arena, &.{ path_to_dir_resolved, entry.name });
+            const query: Query = try .init(ctx, filepath, golden_path, what_are_we_getting);
+            defer query.deinit(ctx.gpa);
             switch (ctx.mode) {
                 .Compare => {
                     var result = try compare(ctx, query);
@@ -332,20 +340,12 @@ pub fn processDirectory(ctx: Context, path_to_dir: []const u8, what_are_we_getti
                             summary.comparison.succeeded += 1;
                         },
                         .file_does_not_exist => {
-                            did_not_exist = true;
                             summary.comparison.failed += 1;
-                            std.debug.print("{s} does not exist\n", .{query.goldenpath});
+                            try stderr.interface.print("{s} does not exist\n", .{query.goldenpath});
                         },
                         .line_diff => |line_diff| {
                             summary.comparison.failed += 1;
-                            std.debug.print(
-                                "Difference on line {}:\nExpected: {s}\n  Actual: {s}\n",
-                                .{
-                                    line_diff.number,
-                                    line_diff.expected orelse eof_marker,
-                                    line_diff.actual orelse eof_marker,
-                                },
-                            );
+                            try line_diff.writeMessage(&stderr.interface);
                         },
                     }
                 },
@@ -360,8 +360,8 @@ pub fn processDirectory(ctx: Context, path_to_dir: []const u8, what_are_we_getti
             }
         }
     }
-    if (did_not_exist) {
-        std.debug.print("Consider `zig build golden-test -Dgenerate`\n", .{});
+    if (summary == .comparison and summary.comparison.failed != 0) {
+        try stderr.interface.print("Consider `zig build golden-test -Dgenerate` or fix your code.\n", .{});
     }
     return summary;
 }
@@ -369,21 +369,24 @@ pub fn processDirectory(ctx: Context, path_to_dir: []const u8, what_are_we_getti
 pub fn main(init: std.process.Init) !void {
     const gpa = init.gpa;
 
+    var stderr = std.Io.File.stderr().writer(init.io, &.{});
+    var stdout = std.Io.File.stdout().writer(init.io, &.{});
+
     const args = init.minimal.args.vector;
     if (args.len < 2) {
-        std.debug.print("Golden test runner should be provided with a path to the executable.", .{});
-        return error.NoArgumentsProvided;
+        try stderr.interface.print("Golden test runner should be provided with a path to the executable.", .{});
+        std.process.exit(1);
     }
     const program_path = args[1];
 
-    const mode = blk: {
+    const mode = mode: {
         if (args.len > 2) {
             if (std.mem.eql(u8, std.mem.span(args[2]), "generate")) {
-                std.debug.print("Generating new golden tests\n", .{});
-                break :blk Mode.Generate;
+                try stderr.interface.print("Generating new golden tests\n", .{});
+                break :mode Mode.Generate;
             }
         }
-        break :blk Mode.Compare;
+        break :mode Mode.Compare;
     };
 
     const ctx: Context = .{
@@ -398,14 +401,11 @@ pub fn main(init: std.process.Init) !void {
     const stderr_summary = try processDirectory(ctx, stderr_tests_path, .stderr);
     const stderr_summary_text = try stderr_summary.getText(ctx.gpa);
     defer ctx.gpa.free(stderr_summary_text);
-    std.debug.print("STDOUT: {s}STDERR: {s}", .{ stdout_summary_text, stderr_summary_text });
+
+    try stdout.interface.print("STDOUT: {s}STDERR: {s}", .{ stdout_summary_text, stderr_summary_text });
     if (ctx.mode == .Compare) {
         try std.testing.expect(stdout_summary.comparison.failed == 0 and stderr_summary.comparison.failed == 0);
     }
-}
-
-test {
-    try std.testing.expect(true);
 }
 
 test "sub-modules" {
