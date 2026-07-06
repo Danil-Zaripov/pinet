@@ -1,6 +1,6 @@
 //! Module that contains basic types for interaction nets logic.
 const std = @import("std");
-const Heap = @import("memory.zig").Heap;
+const memory = @import("memory.zig");
 
 const number_of_ports = 10;
 
@@ -22,16 +22,17 @@ pub const Name = struct {
     ///
     /// Example: a -> b -> c -> Agent() >> unchain(a); >> a -> Agent()
     ///          a -> b -> c -> null    >> unchain(a); >> a -> null
-    pub fn unchain(name: *Name) void {
+    pub fn unchain(name: *Name, heap: memory.Heap(Name)) void {
         var node = if ((name.port orelse return) == .name) name.port.?.name else return;
         while (node.port) |port| {
             if (port == .name) {
-                Heap(Name).freeOne(node);
+                heap.freeOne(node);
                 node = port.name;
             } else break;
         }
+
         name.port = node.port;
-        Heap(Name).freeOne(node);
+        heap.freeOne(node);
     }
 
     /// This function is used to check if the name chain
@@ -149,35 +150,6 @@ pub const Value = union(enum) {
 
     // specials are special in the fact that they can not interact directly
     special: Special,
-
-    pub fn unchain(val: Value) Value {
-        switch (val) {
-            .name => |name| {
-                name.unchain();
-                if (name.port) |port| {
-                    Heap(Name).freeOne(name);
-                    return .{ .agent = port.agent };
-                }
-                return val;
-            },
-            .agent => {
-                return val;
-            },
-        }
-    }
-
-    pub fn unchainPtr(val: *Value) void {
-        switch (val.*) {
-            .name => |name| {
-                name.unchain();
-                if (name.port) |port| {
-                    Heap(Name).freeOne(name);
-                    val.* = .{ .agent = port.agent };
-                }
-            },
-            .agent => {},
-        }
-    }
 };
 
 pub const Equation = struct {
@@ -187,23 +159,29 @@ pub const Equation = struct {
 
 test "unchain" {
     const gpa = std.testing.allocator;
-    var name_heap: Heap(Name) = try .init(gpa, 20);
-    var agent_heap: Heap(Agent) = try .init(gpa, 20);
-    defer name_heap.deinit(gpa);
-    defer agent_heap.deinit(gpa);
+
+    var basic_name_heap: memory.BasicHeap(Name) = try .init(gpa, 20);
+    defer basic_name_heap.deinit(gpa);
+
+    var basic_agent_heap: memory.BasicHeap(Agent) = try .init(gpa, 20);
+    defer basic_agent_heap.deinit(gpa);
+
+    var name_heap = basic_name_heap.heap();
+    var agent_heap = basic_agent_heap.heap();
     // a -> b -> c -> Agent() ===> a -> Agent()
 
-    const a = try name_heap.getOne();
-    const b = try name_heap.getOne();
-    const c = try name_heap.getOne();
-    const agent = try agent_heap.getOne();
+    const a = try name_heap.allocOne();
+    const b = try name_heap.allocOne();
+    const c = try name_heap.allocOne();
+    const agent = try agent_heap.allocOne();
     agent.* = .{ .id = 0, .ports = @splat(null) };
     a.port = .{ .name = b };
     b.port = .{ .name = c };
     c.port = .{ .agent = agent };
-    a.unchain();
+    a.unchain(name_heap);
     // b and c get cleaned, a -> agent
-    try std.testing.expectEqual(.free, @as(*Heap(Name).Optional, @fieldParentPtr("item", b)).*);
-    try std.testing.expectEqual(.free, @as(*Heap(Name).Optional, @fieldParentPtr("item", c)).*);
+    const Optional = memory.BasicHeap(Name).Optional;
+    try std.testing.expectEqual(.free, @as(*Optional, @fieldParentPtr("item", b)).*);
+    try std.testing.expectEqual(.free, @as(*Optional, @fieldParentPtr("item", c)).*);
     try std.testing.expectEqual(a.port.?.agent, agent);
 }

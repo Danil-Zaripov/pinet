@@ -119,14 +119,14 @@ pub const Eraser = struct {
     }
 
     pub fn erase(vm: *VM, agent: *Agent) !void {
-        defer VM.Heap(Agent).freeOne(agent);
+        defer vm.agent_heap.freeOne(agent);
         const ag_arity = vm.runtime.agent_arities.map.get(agent.id).?;
         for (0..ag_arity) |idx| {
             const port = agent.ports[idx].?;
             port_switch: switch (port) {
                 .name => |name| {
                     if (name.port) |name_port| {
-                        defer VM.Heap(Name).freeOne(name);
+                        defer vm.name_heap.freeOne(name);
                         continue :port_switch name_port;
                     } else {
                         // If the name is free yet, create eraser on its port
@@ -143,7 +143,7 @@ pub const Eraser = struct {
 };
 
 pub fn eraser(vm: *VM, self: *Agent, other: *Agent) BuiltinAgentError!void {
-    defer VM.Heap(Agent).freeOne(self);
+    defer vm.agent_heap.freeOne(self);
 
     if (VM.Config.debug_printing.print_interactions) {
         std.debug.print("Freeing ", .{});
@@ -154,7 +154,7 @@ pub fn eraser(vm: *VM, self: *Agent, other: *Agent) BuiltinAgentError!void {
 }
 
 pub fn dupCopy(vm: *VM, self: *Agent, ag: *Agent) BuiltinAgentError!void {
-    defer VM.Heap(Agent).freeOne(self);
+    defer vm.agent_heap.freeOne(self);
     // This allocates :(
 
     var arena = std.heap.ArenaAllocator.init(vm.gpa);
@@ -175,12 +175,12 @@ pub fn dupCopy(vm: *VM, self: *Agent, ag: *Agent) BuiltinAgentError!void {
                         if (connected_name.port) |connected_thing| {
                             // If the name has a port then we skip the original name and
                             // go straight to its port
-                            defer VM.Heap(Name).freeOne(connected_name);
+                            defer _vm.name_heap.freeOne(connected_name);
                             continue :port_switch connected_thing;
                         } else {
                             std.debug.print("Dup to name\n", .{});
                             const names = names_map.get(connected_name).?;
-                            names[port_idx] = try _vm.name_heap.getOne();
+                            names[port_idx] = try _vm.name_heap.allocOne();
                             ag_copy.ports[idx] = Value{ .name = names[port_idx] };
                             names[port_idx].port = Value{ .agent = ag_copy };
                         }
@@ -204,12 +204,12 @@ pub fn dupCopy(vm: *VM, self: *Agent, ag: *Agent) BuiltinAgentError!void {
                         if (connected_name.port) |connected_thing| {
                             // If the name has a port then we skip the original name and
                             // go straight to its port
-                            defer VM.Heap(Name).freeOne(connected_name);
+                            defer _vm.name_heap.freeOne(connected_name);
                             continue :port_switch connected_thing;
                         } else {
                             std.debug.print("Dup to name\n", .{});
                             const names = try allocator.alloc(*Name, _arity);
-                            const new_name = try _vm.name_heap.getOne();
+                            const new_name = try _vm.name_heap.allocOne();
                             try names_map.put(new_name, names);
                             names[0] = connected_name;
                             agent.ports[idx] = Value{ .name = new_name };
@@ -271,8 +271,8 @@ pub fn tuple(vm: *VM, self: *Agent, other: *Agent) BuiltinAgentError!void {
     if (self.id != other.id) {
         return BuiltinAgentError.NoRuleSpecified;
     }
-    defer VM.Heap(Agent).freeOne(self);
-    defer VM.Heap(Agent).freeOne(other);
+    defer vm.agent_heap.freeOne(self);
+    defer vm.agent_heap.freeOne(other);
     const arity = vm.runtime.agent_arities.map.get(self.id).?;
 
     for (0..arity) |port_idx| {
@@ -295,27 +295,27 @@ pub fn number(vm: *VM, self: *Agent, other: *Agent) BuiltinAgentError!void {
     const self_special = self.ports[0].?.special;
 
     const getSecondValue = struct {
-        pub fn getSecondValue(val: Value) ?Special {
+        pub fn getSecondValue(val: Value, _vm: *VM) ?Special {
             switch (val) {
                 .name => |name| {
                     if (name.unwind()) |agent| {
-                        name.unchain();
-                        VM.Heap(Name).freeOne(name);
-                        defer VM.Heap(Agent).freeOne(agent);
+                        name.unchain(_vm.name_heap);
+                        _vm.name_heap.freeOne(name);
+                        defer _vm.agent_heap.freeOne(agent);
                         return agent.ports[0].?.special;
                     } else {
                         return null;
                     }
                 },
                 .agent => |agent| {
-                    return getSecondValue(agent.ports[0].?);
+                    return getSecondValue(agent.ports[0].?, _vm);
                 },
                 .special => |special| return special,
             }
         }
     }.getSecondValue;
 
-    const sv = getSecondValue(other.ports[1].?) orelse {
+    const sv = getSecondValue(other.ports[1].?, vm) orelse {
         // We switch places: self with secondary argument port
         const port = other.ports[1].?;
         other.ports[1] = .{ .agent = self };
@@ -326,8 +326,8 @@ pub fn number(vm: *VM, self: *Agent, other: *Agent) BuiltinAgentError!void {
         try vm.pushEquation(eq);
         return;
     };
-    defer VM.Heap(Agent).freeOne(self);
-    defer VM.Heap(Agent).freeOne(other);
+    defer vm.agent_heap.freeOne(self);
+    defer vm.agent_heap.freeOne(other);
 
     const ret = switch (other.id) {
         adder_id => Special.add(self_special, sv),
@@ -357,8 +357,9 @@ pub fn make_random_list(vm: *VM, self: *Agent, other: *Agent) BuiltinAgentError!
         .float => return BuiltinAgentError.BadSecondaryArgument,
     };
 
-    defer VM.Heap(Agent).freeOne(self);
-    defer VM.Heap(Agent).freeOne(other);
+    defer vm.agent_heap.freeOne(self);
+    defer vm.agent_heap.freeOne(other);
+
     var prng: std.Random.DefaultPrng = .init(blk: {
         var buffer: [8]u8 = undefined;
         vm.runtime.io.random(buffer[0..]);

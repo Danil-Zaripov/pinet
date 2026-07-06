@@ -25,8 +25,8 @@ pub fn name_name(vm: *VM, lname: *Name, rname: *Name) !void {
     // Also can this be rewritten to be more linear?
     if (lname.port) |lport| {
         if (rname.port) |rport| {
-            defer VM.Heap(Name).freeOne(lname);
-            defer VM.Heap(Name).freeOne(rname);
+            defer vm.name_heap.freeOne(lname);
+            defer vm.name_heap.freeOne(rname);
 
             const eq = Equation{
                 .lhs = lport,
@@ -47,7 +47,7 @@ pub fn name_agent(vm: *VM, name: *Name, agent: *Agent) !void {
     }
 
     if (name.port) |port| {
-        defer VM.Heap(Name).freeOne(name);
+        defer vm.name_heap.freeOne(name);
         const eq = Equation{
             .lhs = port,
             .rhs = Value{ .agent = agent },
@@ -196,8 +196,8 @@ pub fn agent_agent(vm: *VM, _lagent: *Agent, _ragent: *Agent) !void {
             // We don't free the ragent in case it's wildcarded
             // because it functions like a name and will interact
             // later
-            defer VM.Heap(Agent).freeOne(lagent);
-            defer if (!wildcarded) VM.Heap(Agent).freeOne(ragent);
+            defer vm.agent_heap.freeOne(lagent);
+            defer if (!wildcarded) vm.agent_heap.freeOne(ragent);
 
             const conditioned_rules = search_result.rules;
             for (conditioned_rules) |conditioned| {

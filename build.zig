@@ -1,4 +1,5 @@
 const std = @import("std");
+const HeapKind = @import("src/vm/memory.zig").HeapKind;
 
 pub const DebugPrintConfig = struct {
     print_compiled_instructions: bool = false,
@@ -44,6 +45,9 @@ pub fn build(b: *std.Build) void {
 
     const options = b.addOptions();
     options.addOption(DebugPrintConfig, "debug_printing", debug_printing);
+
+    const heap_kind = b.option(HeapKind, "heap", "which heap implementation to use") orelse .basic;
+    options.addOption(HeapKind, "heap", heap_kind);
 
     mod.addOptions("config", options);
     b.installArtifact(exe);
