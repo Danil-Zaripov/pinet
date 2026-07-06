@@ -64,12 +64,33 @@ pub const Lines = struct {
 /// Gets command name and its arguments as an array and
 /// tries to launch. The caller owns the memory.
 pub fn invokeAndCollectStdout(command: []const []const u8, gpa: std.mem.Allocator, io: std.Io) ![:0]u8 {
-    assert(command.len > 1);
+    assert(command.len > 0);
     const result = std.process.run(gpa, io, .{
         .argv = command,
-    }) catch return error.RunningFailed;
+    }) catch |err| {
+        var stderr = std.Io.File.stderr().writer(io, &.{});
+        try stderr.interface.print("Failed to run command: ", .{});
+        try printCommand(&stderr.interface, command);
+        try stderr.interface.print("\nReason: {s}\n", .{@errorName(err)});
+        return error.HandledError;
+    };
 
-    try std.testing.expectEqual(0, result.term.exited);
+    if (!terminationSuccessful(result.term)) {
+        var stderr = std.Io.File.stderr().writer(io, &.{});
+        try stderr.interface.print("Command failed: ", .{});
+        try printCommand(&stderr.interface, command);
+        try stderr.interface.print("\nTermination: ", .{});
+        try printTermination(&stderr.interface, result.term);
+        if (result.stderr.len != 0) {
+            try stderr.interface.print("\nCaptured stderr:\n{s}\n", .{result.stderr});
+        } else {
+            try stderr.interface.print("\n", .{});
+        }
+
+        gpa.free(result.stderr);
+        gpa.free(result.stdout);
+        return error.HandledError;
+    }
 
     gpa.free(result.stderr);
     return ret: {
@@ -80,10 +101,16 @@ pub fn invokeAndCollectStdout(command: []const []const u8, gpa: std.mem.Allocato
 }
 
 pub fn invokeAndCollectStderr(command: []const []const u8, gpa: std.mem.Allocator, io: std.Io) ![:0]u8 {
-    assert(command.len > 1);
+    assert(command.len > 0);
     const result = std.process.run(gpa, io, .{
         .argv = command,
-    }) catch return error.RunningFailed;
+    }) catch |err| {
+        var stderr = std.Io.File.stderr().writer(io, &.{});
+        try stderr.interface.print("Failed to run command: ", .{});
+        try printCommand(&stderr.interface, command);
+        try stderr.interface.print("\nReason: {s}\n", .{@errorName(err)});
+        return error.HandledError;
+    };
 
     gpa.free(result.stdout);
     return ret: {
@@ -116,14 +143,16 @@ const LineDiff = struct {
     expected: ?[]const u8,
     actual: ?[]const u8,
 
-    pub fn writeMessage(self: LineDiff, writer: *std.Io.Writer) !void {
+    pub fn writeMessage(self: LineDiff, writer: *std.Io.Writer, input_path: []const u8, golden_path: []const u8) !void {
         try writer.print(
-            \\Difference on line {}.
+            \\|{s} <> {s}| line {} difference:
+            \\
             \\Expected: {s}
             \\  Actual: {s}
             \\
+            \\
         ,
-            .{ self.number + 1, self.expected orelse eof_marker, self.actual orelse eof_marker },
+            .{ input_path, golden_path, self.number + 1, self.expected orelse eof_marker, self.actual orelse eof_marker },
         );
     }
 };
@@ -152,6 +181,7 @@ const ComparisonResult = union(enum) {
 };
 
 const Query = struct {
+    input_path: []const u8,
     goldenpath: []const u8,
     program_output: [:0]const u8,
 
@@ -161,6 +191,7 @@ const Query = struct {
             .stderr => invokeAndCollectStderr(&.{ ctx.program_path, "-f", filepath }, ctx.gpa, ctx.io),
         };
         return .{
+            .input_path = filepath,
             .goldenpath = goldenpath,
             .program_output = output,
         };
@@ -269,7 +300,7 @@ const Summary = union(enum) {
         return switch (self) {
             .generated => |generated| try std.fmt.allocPrint(
                 gpa,
-                "CREATED: {}; UPDATED: {}; UNCHANGED: {}; TOTAL: {};\n",
+                "created: {}; updated: {}; unchanged: {}; total: {}\n",
                 .{
                     generated.created,
                     generated.updated,
@@ -279,7 +310,7 @@ const Summary = union(enum) {
             ),
             .comparison => |comparison| try std.fmt.allocPrint(
                 gpa,
-                "SUCCESS: {}; FAILED: {}; TOTAL: {};\n",
+                "passed: {}; failed: {}; total: {}\n",
                 .{
                     comparison.succeeded,
                     comparison.failed,
@@ -303,18 +334,18 @@ pub fn processDirectory(ctx: Context, path_to_dir: []const u8, what_are_we_getti
     var stderr = std.Io.File.stderr().writer(ctx.io, &.{});
 
     const golden_dir_path = try std.fs.path.resolve(arena, &.{ path_to_dir_resolved, "golden" });
-
-    const golden_dir = dir.openDir(ctx.io, "golden", .{}) catch |err| err_blk: {
-        if (err == error.FileNotFound) {
-            try stderr.interface.print("{s} directory not found. Trying to create.\n", .{golden_dir_path});
-            try dir.createDir(ctx.io, "golden", std.Io.Dir.Permissions.default_dir);
-            break :err_blk try dir.openDir(ctx.io, "golden", .{});
-        } else {
+    if (ctx.mode == .Generate) {
+        const golden_dir = dir.openDir(ctx.io, "golden", .{}) catch |err| err_blk: {
+            if (err == error.FileNotFound) {
+                try stderr.interface.print("{s} directory not found. Creating it.\n", .{golden_dir_path});
+                try dir.createDir(ctx.io, "golden", std.Io.Dir.Permissions.default_dir);
+                break :err_blk try dir.openDir(ctx.io, "golden", .{});
+            }
             try stderr.interface.print("Error when opening {s}: {s}\n", .{ golden_dir_path, @errorName(err) });
             return err;
-        }
-    };
-    defer golden_dir.close(ctx.io);
+        };
+        golden_dir.close(ctx.io);
+    }
 
     var iter = dir.iterate();
 
@@ -331,7 +362,9 @@ pub fn processDirectory(ctx: Context, path_to_dir: []const u8, what_are_we_getti
                 break :blk try std.fs.path.resolve(arena, &.{ path_to_dir_resolved, "golden", golden_basename });
             };
             const filepath = try std.fs.path.resolve(arena, &.{ path_to_dir_resolved, entry.name });
-            const query: Query = try .init(ctx, filepath, golden_path, what_are_we_getting);
+            const query = Query.init(ctx, filepath, golden_path, what_are_we_getting) catch |err|
+                if (err == error.HandledError) continue else return err;
+
             defer query.deinit(ctx.gpa);
             switch (ctx.mode) {
                 .Compare => {
@@ -343,11 +376,11 @@ pub fn processDirectory(ctx: Context, path_to_dir: []const u8, what_are_we_getti
                         },
                         .file_does_not_exist => {
                             summary.comparison.failed += 1;
-                            try stderr.interface.print("{s} does not exist\n", .{query.goldenpath});
+                            try stderr.interface.print("Missing golden file for {s}: {s}\n", .{ query.input_path, query.goldenpath });
                         },
                         .line_diff => |line_diff| {
                             summary.comparison.failed += 1;
-                            try line_diff.writeMessage(&stderr.interface);
+                            try line_diff.writeMessage(&stderr.interface, query.input_path, query.goldenpath);
                         },
                     }
                 },
@@ -363,7 +396,7 @@ pub fn processDirectory(ctx: Context, path_to_dir: []const u8, what_are_we_getti
         }
     }
     if (summary == .comparison and summary.comparison.failed != 0) {
-        try stderr.interface.print("Consider `zig build golden-test -Dgenerate` or fix your code.\n", .{});
+        try stderr.interface.print("Consider `zig build golden-test -Dgenerate` or fix your code.\n\n", .{});
     }
     return summary;
 }
@@ -376,17 +409,22 @@ pub fn main(init: std.process.Init) !void {
 
     const args = init.minimal.args.vector;
     if (args.len < 2) {
-        try stderr.interface.print("Golden test runner should be provided with a path to the executable.", .{});
+        try stderr.interface.print("Golden test runner requires a path to the executable.\n", .{});
         std.process.exit(1);
     }
     const program_path = args[1];
 
     const mode = mode: {
         if (args.len > 2) {
-            if (std.mem.eql(u8, std.mem.span(args[2]), "generate")) {
+            const arg = std.mem.span(args[2]);
+            if (std.mem.eql(u8, arg, "generate")) {
                 try stderr.interface.print("Generating new golden tests\n", .{});
                 break :mode Mode.Generate;
+            } else if (std.mem.eql(u8, arg, "compare")) {
+                break :mode Mode.Compare;
             }
+            try stderr.interface.print("Unknown mode: {s}. Expected `compare` or `generate`.\n", .{arg});
+            std.process.exit(1);
         }
         break :mode Mode.Compare;
     };
@@ -414,8 +452,33 @@ pub fn main(init: std.process.Init) !void {
         },
     );
     if (ctx.mode == .Compare) {
-        try std.testing.expect(stdout_summary.comparison.failed == 0 and stderr_summary.comparison.failed == 0);
+        if (stdout_summary.comparison.failed != 0 or stderr_summary.comparison.failed != 0) {
+            std.process.exit(1);
+        }
     }
+}
+
+fn printCommand(writer: *std.Io.Writer, command: []const []const u8) !void {
+    for (command, 0..) |arg, idx| {
+        if (idx != 0) try writer.print(" ", .{});
+        try writer.print("{s}", .{arg});
+    }
+}
+
+fn printTermination(writer: *std.Io.Writer, termination: std.process.Child.Term) !void {
+    switch (termination) {
+        .exited => |code| try writer.print("exited with code {}", .{code}),
+        .signal => |signal| try writer.print("terminated by signal {}", .{signal}),
+        .stopped => |signal| try writer.print("stopped by signal {}", .{signal}),
+        .unknown => |code| try writer.print("terminated for unknown reason ({})", .{code}),
+    }
+}
+
+fn terminationSuccessful(termination: std.process.Child.Term) bool {
+    return switch (termination) {
+        .exited => |code| code == 0,
+        else => false,
+    };
 }
 
 test "sub-modules" {
