@@ -1,9 +1,9 @@
 //! This module encapsulates prints to stdout and whatever.
 const std = @import("std");
 
-const VM = @import("../vm.zig");
+const VM = @import("vm.zig");
 const Config = VM.Config;
-const Types = @import("types.zig");
+const Types = @import("vm/types.zig");
 
 const Agent = Types.Agent;
 const Value = Types.Value;

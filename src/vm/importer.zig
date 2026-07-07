@@ -4,7 +4,7 @@ const std = @import("std");
 const Runtime = @import("runtime.zig");
 const Lexer = @import("../lexer.zig");
 const Parser = @import("../parser.zig");
-const Instruction = @import("instruction.zig");
+const Instruction = @import("../compilation/instruction.zig");
 const Config = @import("../vm.zig").Config;
 
 const Self = @This();

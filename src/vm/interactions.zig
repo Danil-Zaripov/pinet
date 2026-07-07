@@ -3,7 +3,7 @@ const AST = @import("../ast.zig");
 const Lexer = @import("../lexer.zig");
 const Types = @import("types.zig");
 const Runtime = @import("runtime.zig");
-const Instruction = @import("instruction.zig");
+const Instruction = @import("../compilation/instruction.zig");
 const Builtin = @import("builtin.zig");
 const VM = @import("../vm.zig");
 

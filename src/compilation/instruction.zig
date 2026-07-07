@@ -1,16 +1,20 @@
 const std = @import("std");
 const AST = @import("../ast.zig");
-const Types = @import("types.zig");
-const Runtime = @import("runtime.zig");
+const Types = @import("../vm/types.zig");
+const Runtime = @import("../vm/runtime.zig");
 const VM = @import("../vm.zig");
+
+pub const Condition = @import("condition.zig");
+
+const Scope = @import("scope.zig");
+const RegisterId = Scope.RegisterId;
+const NameInfo = Scope.NameInfo;
 
 const Agent = Types.Agent;
 const Special = Types.Special;
 const Name = Types.Name;
 const Value = Types.Value;
 const Equation = Types.Equation;
-
-const RegisterId = usize;
 
 pub const Port = struct {
     owner: Owner,
@@ -179,46 +183,9 @@ const CompiledTerm = struct {
     instrs: []Instruction,
 };
 
-const NameInfo = struct {
-    location: RegisterId,
-    is_on_port: bool = false,
-    used: bool = false,
-    token_slice: TokenSlice,
-};
-
 const CompiledName = struct {
     name_info: *NameInfo,
     instrs: []Instruction,
-};
-
-const Scope = struct {
-    map: std.StringHashMap(NameInfo),
-    free_idx: RegisterId,
-    pub fn getFree(self: *Scope) RegisterId {
-        defer self.free_idx += 1;
-        return self.free_idx;
-    }
-
-    pub fn associate(self: *Scope, name: []const u8, tslice: TokenSlice) !*NameInfo {
-        if (self.map.get(name)) |_| {
-            return error.ValueExists;
-        } else {
-            const val = self.getFree();
-            const info = NameInfo{ .location = val, .token_slice = tslice };
-            const result = try self.map.getOrPutValue(name, info);
-            return result.value_ptr;
-        }
-    }
-
-    pub fn init(allocator: std.mem.Allocator) Scope {
-        return .{
-            .free_idx = 0,
-            .map = std.StringHashMap(NameInfo).init(allocator),
-        };
-    }
-    pub fn deinit(self: *Scope) void {
-        self.map.deinit();
-    }
 };
 
 pub fn compileNumber(
@@ -546,7 +513,7 @@ pub const CompilationError = struct {
         NameUsedTwice,
     };
 
-    const Printing = @import("printing.zig");
+    const Printing = @import("../printing.zig");
     const Token = @import("../lexer.zig").Token;
 
     fn multiLineMarkup(

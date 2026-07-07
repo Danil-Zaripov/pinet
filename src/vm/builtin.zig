@@ -1,7 +1,7 @@
 const std = @import("std");
 const VM = @import("../vm.zig");
 const Types = @import("types.zig");
-const Printing = @import("printing.zig");
+const Printing = @import("../printing.zig");
 
 const Agent = Types.Agent;
 const Value = Types.Value;

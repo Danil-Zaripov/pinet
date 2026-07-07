@@ -4,7 +4,7 @@
 //! Replaces ugly(?) global variables.
 const std = @import("std");
 const Types = @import("types.zig");
-const Instruction = @import("instruction.zig");
+const Instruction = @import("../compilation/instruction.zig");
 const Builtin = @import("builtin.zig");
 const Importer = @import("importer.zig");
 const Token = @import("../lexer.zig").Token;

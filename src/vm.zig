@@ -7,10 +7,10 @@ const AST = @import("ast.zig");
 const Lexer = @import("lexer.zig");
 const Types = @import("vm/types.zig");
 const Runtime = @import("vm/runtime.zig");
-const Instruction = @import("vm/instruction.zig");
+const Instruction = @import("compilation/instruction.zig");
 const Interaction = @import("vm/interactions.zig");
 const Builtin = @import("vm/builtin.zig");
-const Printing = @import("vm/printing.zig");
+const Printing = @import("printing.zig");
 const memory = @import("vm/memory.zig");
 
 pub const Config = @import("root.zig").Config;
