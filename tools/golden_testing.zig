@@ -438,6 +438,7 @@ pub fn main(init: std.process.Init) !void {
     const stdout_summary = try processDirectory(ctx, stdout_tests_path, .stdout);
     const stdout_summary_text = try stdout_summary.getText(ctx.gpa);
     defer ctx.gpa.free(stdout_summary_text);
+   
     const stderr_summary = try processDirectory(ctx, stderr_tests_path, .stderr);
     const stderr_summary_text = try stderr_summary.getText(ctx.gpa);
     defer ctx.gpa.free(stderr_summary_text);
