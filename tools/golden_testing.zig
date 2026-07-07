@@ -313,9 +313,11 @@ pub fn processDirectory(ctx: Context, path_to_dir: []const u8, what_are_we_getti
     var _arena = std.heap.ArenaAllocator.init(ctx.gpa);
     defer _arena.deinit();
     const arena = _arena.allocator();
-    const cwd = std.Io.Dir.cwd();
+    
     const path_to_dir_resolved = try std.fs.path.resolve(ctx.gpa, &.{path_to_dir});
     defer ctx.gpa.free(path_to_dir_resolved);
+    
+    const cwd = std.Io.Dir.cwd();    
     const dir = try cwd.openDir(ctx.io, path_to_dir_resolved, .{ .access_sub_paths = false, .iterate = true });
     defer dir.close(ctx.io);
 
