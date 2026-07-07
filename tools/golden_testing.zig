@@ -8,9 +8,6 @@ const stderr_tests_path = "tests_errors";
 pub const Lines = struct {
     lines: [][]const u8,
 
-    /// 4 on line index, 2 on additional characters
-    pub const enumeration_padding = 6;
-
     pub fn init(gpa: std.mem.Allocator, contents: [:0]const u8) !Lines {
         var list = std.ArrayList([]const u8).empty;
         errdefer list.deinit(gpa);
@@ -23,12 +20,6 @@ pub const Lines = struct {
         return .{
             .lines = try list.toOwnedSlice(gpa),
         };
-    }
-
-    /// Caller owns the string.
-    pub fn getEnumerated(self: *const Lines, arena: std.mem.Allocator, idx: usize) ![]const u8 {
-        // self.enumeration_padding = 4 + "| ".len
-        return std.fmt.allocPrint(arena, "{: >4}| {s}", .{ idx + 1, self.lines[idx] });
     }
 
     pub fn deinit(self: Lines, gpa: std.mem.Allocator) void {
