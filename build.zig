@@ -61,6 +61,9 @@ pub fn build(b: *std.Build) void {
         // .use_llvm = true,
     });
 
+    // for perf
+    exe.root_module.omit_frame_pointer = b.option(bool, "no-omit-frame-pointer", "do not omit frame pointer") orelse false;
+
     const clap = b.dependency("clap", .{});
     exe.root_module.addImport("clap", clap.module("clap"));
 
