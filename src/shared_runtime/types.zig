@@ -1,5 +1,6 @@
 //! Module that contains basic types for interaction nets logic.
 const std = @import("std");
+
 const memory = @import("memory.zig");
 
 const number_of_ports = 10;

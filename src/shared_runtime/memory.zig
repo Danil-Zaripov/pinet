@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const Config = @import("../vm.zig").Config;
+const Config = @import("config");
 
 pub const HeapKind = enum { basic };
 

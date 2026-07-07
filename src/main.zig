@@ -1,7 +1,9 @@
 const std = @import("std");
 const Io = std.Io;
 
-const pinet = @import("pinet");
+const AST = @import("ast");
+const SharedRuntime = @import("shared_runtime");
+const VM = @import("vm");
 
 const clap = @import("clap");
 
@@ -57,16 +59,16 @@ pub fn main(init: std.process.Init) !void {
     );
     defer gpa.free(contents);
 
-    const tokens = try pinet.Lexer.tokenize(gpa, contents);
+    const tokens = try AST.Lexer.tokenize(gpa, contents);
 
-    const main_file = pinet.Runtime.File{
+    const main_file = SharedRuntime.File{
         .path = filepath,
         .contents = contents,
         .tokens = tokens,
     };
 
     defer gpa.free(tokens);
-    var parser = try pinet.Parser.init(tokens, gpa, std.heap.page_allocator);
+    var parser = try AST.Parser.init(tokens, gpa, std.heap.page_allocator);
     defer parser.deinit(gpa);
     const program = parser.parseProgram() catch |err| {
         if (err == error.ErrorDuringParsing) {
@@ -77,14 +79,24 @@ pub fn main(init: std.process.Init) !void {
         }
         return err;
     };
-    var runtime = try pinet.Runtime.init(gpa, std.heap.page_allocator, main_file);
+    var runtime = try SharedRuntime.init(gpa, std.heap.page_allocator, main_file);
     defer runtime.deinit(gpa);
-    var vm = try pinet.VM.init(gpa, &runtime);
+    var vm = try VM.init(gpa, &runtime);
     defer vm.deinit();
     vm.runProgram(program) catch |err| {
         if (err == error.CompilationError) {
             std.process.exit(1);
         }
         return err;
+    };
+}
+
+test "test modules" {
+    _ = .{
+        AST,
+        SharedRuntime,
+        @import("compilation"),
+        @import("printing"),
+        VM,
     };
 }

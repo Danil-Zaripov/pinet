@@ -1,7 +1,7 @@
 //! A struct that has the information, that we possess at each point of compilation.
 const std = @import("std");
 
-const AST = @import("../ast.zig");
+const AST = @import("ast");
 const TokenSlice = AST.TokenSlice;
 
 const Scope = @This();

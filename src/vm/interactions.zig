@@ -1,13 +1,13 @@
 const std = @import("std");
-const AST = @import("../ast.zig");
-const Lexer = @import("../lexer.zig");
-const Types = @import("types.zig");
-const Runtime = @import("runtime.zig");
-const Instruction = @import("../compilation/instruction.zig");
+const AST = @import("ast");
+const Lexer = AST.Lexer;
+const Runtime = @import("shared_runtime");
+const Types = Runtime.Types;
+const Instruction = @import("compilation").Instruction;
 const Builtin = @import("builtin.zig");
-const VM = @import("../vm.zig");
+const VM = @import("vm.zig");
 
-pub const Config = VM.Config;
+pub const Config = @import("config");
 
 const Agent = Types.Agent;
 const Value = Types.Value;

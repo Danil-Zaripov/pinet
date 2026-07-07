@@ -8,7 +8,7 @@ const Token = Lexer.Token;
 
 pub const Parser = @This();
 
-const Printing = @import("printing.zig");
+const Printing = @import("printing");
 
 /// Basically a diagnostic tool. Has context of the error in case
 /// Error.ErrorDuringParsing is returned.
@@ -653,7 +653,6 @@ test "free stmt" {
     }
 }
 
-// Maybe another way is hidden somewhere in std?
 const BufferedStringStream = Printing.BufferedStringStream;
 
 fn writeObject(stream: *BufferedStringStream, obj: AST.Object) !void {

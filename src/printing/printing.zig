@@ -1,14 +1,15 @@
 //! This module encapsulates prints to stdout and whatever.
 const std = @import("std");
 
-const VM = @import("vm.zig");
-const Config = VM.Config;
-const Types = @import("vm/types.zig");
+const Runtime = @import("shared_runtime");
+const Types = Runtime.Types;
 
 const Agent = Types.Agent;
 const Value = Types.Value;
 const Name = Types.Name;
 const Equation = Types.Equation;
+
+const Config = @import("config");
 
 pub const BufferedStringStream = struct {
     buffer: []u8,
@@ -94,8 +95,8 @@ pub const Lines = struct {
 
 const max_cycle_length = 100;
 
-fn getAgentSymbolNested(vm: *const VM, ag: *const Agent, stream: *BufferedStringStream) !void {
-    const name = vm.runtime.agent_id_map.findKey(ag.id);
+fn getAgentSymbolNested(runtime: *const Runtime, ag: *const Agent, stream: *BufferedStringStream) !void {
+    const name = runtime.agent_id_map.findKey(ag.id);
     try stream.write("{s}(", .{name.?});
     {
         var idx: usize = 0;
@@ -113,7 +114,7 @@ fn getAgentSymbolNested(vm: *const VM, ag: *const Agent, stream: *BufferedString
                             try stream.write("(n)", .{});
                         }
                         if (wired_to == .agent) {
-                            try getAgentSymbolNested(vm, wired_to.agent, stream);
+                            try getAgentSymbolNested(runtime, wired_to.agent, stream);
                             continue :outer;
                         } else {
                             wire = wired_to.name;
@@ -126,7 +127,7 @@ fn getAgentSymbolNested(vm: *const VM, ag: *const Agent, stream: *BufferedString
                     try stream.write("<NAME>", .{});
                 },
                 .agent => |new_ag| {
-                    try getAgentSymbolNested(vm, new_ag, stream);
+                    try getAgentSymbolNested(runtime, new_ag, stream);
                 },
                 .special => |special| {
                     switch (special) {
@@ -144,14 +145,14 @@ fn getAgentSymbolNested(vm: *const VM, ag: *const Agent, stream: *BufferedString
     try stream.write(")", .{});
 }
 
-pub fn getAgentSymbol(vm: *const VM, ag: *const Agent) ![]const u8 {
+pub fn getAgentSymbol(runtime: *const Runtime, gpa: std.mem.Allocator, ag: *const Agent) ![]const u8 {
     const max_agent_name_size = 512;
-    var stream = try BufferedStringStream.init(vm.gpa, max_agent_name_size);
-    try getAgentSymbolNested(vm, ag, &stream);
+    var stream = try BufferedStringStream.init(gpa, max_agent_name_size);
+    try getAgentSymbolNested(runtime, ag, &stream);
     return stream.buffer;
 }
 
-pub fn tryPrint(vm: *const VM, val: Value) !void {
+pub fn tryPrint(runtime: *const Runtime, gpa: std.mem.Allocator, val: Value) !void {
     var cur = val;
     var idx: u32 = 0;
     while (cur == .name) : ({
@@ -166,17 +167,17 @@ pub fn tryPrint(vm: *const VM, val: Value) !void {
             return;
         }
     }
-    const bytes = getAgentSymbol(vm, cur.agent) catch |err| {
+    const bytes = getAgentSymbol(runtime, gpa, cur.agent) catch |err| {
         if (err == error.NoSpaceLeft) {
             std.debug.print("Agent symbol is too long to print\n", .{});
             return;
         }
         return err;
     };
-    defer vm.gpa.free(bytes);
+    defer gpa.free(bytes);
     const string = std.mem.sliceTo(bytes, 0);
     var stdout = std.Io.File.stdout();
-    var writer = stdout.writerStreaming(vm.runtime.io, &.{});
+    var writer = stdout.writerStreaming(runtime.io, &.{});
     try writer.interface.print("{s}\n", .{string});
 }
 

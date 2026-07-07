@@ -5,7 +5,8 @@
 
 const std = @import("std");
 
-const Types = @import("../vm/types.zig");
+const Scope = @import("scope.zig");
+const Types = @import("shared_runtime").Types;
 
 const Agent = Types.Agent;
 const Special = Types.Special;

@@ -1,13 +1,16 @@
 const std = @import("std");
-const VM = @import("../vm.zig");
-const Types = @import("types.zig");
-const Printing = @import("../printing.zig");
+const VM = @import("vm.zig");
+const Types = @import("shared_runtime").Types;
+const Printing = @import("printing");
+const AST = @import("ast");
 
 const Agent = Types.Agent;
 const Value = Types.Value;
 const Name = Types.Name;
 const Special = Types.Special;
 const Equation = Types.Equation;
+
+const Config = @import("config");
 
 // builtin agents logic
 
@@ -56,7 +59,7 @@ pub fn deinit() void {
     BuiltinTable.deinit();
 }
 
-pub const number_builtin_ident = @import("../ast.zig").number_special_ident;
+pub const number_builtin_ident = AST.number_special_ident;
 
 // Making this empty makes there be no
 // builtin agents. TODO: use compile flag for that
@@ -145,7 +148,7 @@ pub const Eraser = struct {
 pub fn eraser(vm: *VM, self: *Agent, other: *Agent) BuiltinAgentError!void {
     defer vm.agent_heap.freeOne(self);
 
-    if (VM.Config.debug_printing.print_interactions) {
+    if (Config.debug_printing.print_interactions) {
         std.debug.print("Freeing ", .{});
         try Printing.tryPrint(vm, Value{ .agent = other });
     }
