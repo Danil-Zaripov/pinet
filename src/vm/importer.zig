@@ -1,11 +1,12 @@
 //! Struct that handles importing logic through "use" statements.
 const std = @import("std");
 
-const Runtime = @import("runtime.zig");
-const Lexer = @import("../lexer.zig");
-const Parser = @import("../parser.zig");
-const Instruction = @import("instruction.zig");
-const Config = @import("../vm.zig").Config;
+const Runtime = @import("shared_runtime");
+const AST = @import("ast");
+const Lexer = AST.Lexer;
+const Parser = AST.Parser;
+const Instruction = @import("compilation").Instruction;
+const Config = @import("config");
 
 const Self = @This();
 const Importer = Self;

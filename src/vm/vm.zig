@@ -3,17 +3,20 @@
 //! Anything shared between virtual machines is in the
 //! Runtime module.
 const std = @import("std");
-const AST = @import("ast.zig");
-const Lexer = @import("lexer.zig");
-const Types = @import("vm/types.zig");
-const Runtime = @import("vm/runtime.zig");
-const Instruction = @import("vm/instruction.zig");
-const Interaction = @import("vm/interactions.zig");
-const Builtin = @import("vm/builtin.zig");
-const Printing = @import("vm/printing.zig");
-const memory = @import("vm/memory.zig");
 
-pub const Config = @import("root.zig").Config;
+pub const Builtin = @import("builtin.zig");
+pub const Interaction = @import("interactions.zig");
+pub const Importer = @import("importer.zig");
+
+const AST = @import("ast");
+const Lexer = AST.Lexer;
+const Runtime = @import("shared_runtime");
+const Types = Runtime.Types;
+const Memory = Runtime.Memory;
+const Instruction = @import("compilation").Instruction;
+const Printing = @import("printing");
+
+const Config = @import("config");
 
 const Agent = Types.Agent;
 const Value = Types.Value;
@@ -26,8 +29,8 @@ const Self = VirtualMachine;
 const number_of_registers = 100;
 
 // the heaps should be in the runtime!
-name_heap: memory.Heap(Name),
-agent_heap: memory.Heap(Agent),
+name_heap: Memory.Heap(Name),
+agent_heap: Memory.Heap(Agent),
 registers: [number_of_registers]Value,
 
 runtime: *Runtime,
@@ -56,21 +59,21 @@ pub fn pushUrgent(vm: *VirtualMachine, eq: Equation) !void {
 
 fn HeapType(comptime T: type) type {
     switch (Config.heap) {
-        .basic => return memory.BasicHeap(T),
+        .basic => return Memory.BasicHeap(T),
     }
 }
 
-fn heapInit(comptime T: type, default_heap_size: comptime_int, gpa: std.mem.Allocator) !memory.Heap(T) {
+fn heapInit(comptime T: type, default_heap_size: comptime_int, gpa: std.mem.Allocator) !Memory.Heap(T) {
     const basic_heap = try gpa.create(HeapType(T));
 
     basic_heap.* = switch (Config.heap) {
-        .basic => try memory.BasicHeap(T).init(gpa, default_heap_size),
+        .basic => try Memory.BasicHeap(T).init(gpa, default_heap_size),
     };
 
     return basic_heap.heap();
 }
 
-fn heapDeinit(comptime T: type, heap: memory.Heap(T), gpa: std.mem.Allocator) void {
+fn heapDeinit(comptime T: type, heap: Memory.Heap(T), gpa: std.mem.Allocator) void {
     const basic_heap: *HeapType(T) = @ptrCast(@alignCast(heap.ptr));
 
     switch (Config.heap) {
@@ -248,7 +251,7 @@ pub fn runProgram(vm: *VirtualMachine, program: AST.Program) !void {
                 if (vm.runtime.associated_names.get(name_to_print.val)) |maybe_name| {
                     if (maybe_name) |name| {
                         if (name.port) |port| {
-                            try Printing.tryPrint(vm, port);
+                            try Printing.tryPrint(vm.runtime, vm.gpa, port);
                         } else {
                             std.debug.print("<MOVED>\n", .{});
                         }
@@ -343,11 +346,4 @@ pub fn runProgram(vm: *VirtualMachine, program: AST.Program) !void {
             },
         }
     }
-}
-
-test "test sub-modules" {
-    _ = .{
-        Types,
-        Printing,
-    };
 }

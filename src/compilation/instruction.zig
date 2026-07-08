@@ -1,16 +1,20 @@
 const std = @import("std");
-const AST = @import("../ast.zig");
-const Types = @import("types.zig");
-const Runtime = @import("runtime.zig");
-const VM = @import("../vm.zig");
+const AST = @import("ast");
+const Runtime = @import("shared_runtime");
+const Types = Runtime.Types;
+const Compilation = @import("compilation.zig");
+
+pub const Condition = @import("condition.zig");
+
+const Scope = @import("scope.zig");
+const RegisterId = Scope.RegisterId;
+const NameInfo = Scope.NameInfo;
 
 const Agent = Types.Agent;
 const Special = Types.Special;
 const Name = Types.Name;
 const Value = Types.Value;
 const Equation = Types.Equation;
-
-const RegisterId = usize;
 
 pub const Port = struct {
     owner: Owner,
@@ -179,46 +183,9 @@ const CompiledTerm = struct {
     instrs: []Instruction,
 };
 
-const NameInfo = struct {
-    location: RegisterId,
-    is_on_port: bool = false,
-    used: bool = false,
-    token_slice: TokenSlice,
-};
-
 const CompiledName = struct {
     name_info: *NameInfo,
     instrs: []Instruction,
-};
-
-const Scope = struct {
-    map: std.StringHashMap(NameInfo),
-    free_idx: RegisterId,
-    pub fn getFree(self: *Scope) RegisterId {
-        defer self.free_idx += 1;
-        return self.free_idx;
-    }
-
-    pub fn associate(self: *Scope, name: []const u8, tslice: TokenSlice) !*NameInfo {
-        if (self.map.get(name)) |_| {
-            return error.ValueExists;
-        } else {
-            const val = self.getFree();
-            const info = NameInfo{ .location = val, .token_slice = tslice };
-            const result = try self.map.getOrPutValue(name, info);
-            return result.value_ptr;
-        }
-    }
-
-    pub fn init(allocator: std.mem.Allocator) Scope {
-        return .{
-            .free_idx = 0,
-            .map = std.StringHashMap(NameInfo).init(allocator),
-        };
-    }
-    pub fn deinit(self: *Scope) void {
-        self.map.deinit();
-    }
 };
 
 pub fn compileNumber(
@@ -231,7 +198,7 @@ pub fn compileNumber(
     const reg = scope.getFree();
     try list.append(runtime.allocator, mk_agent(agent_id, reg));
     const special_reg = scope.getFree();
-    const special = try VM.getNumberType(obj.portlist.?[0].val.name);
+    const special = try Compilation.getNumberType(obj.portlist.?[0].val.name);
     try list.append(runtime.allocator, mk_special(special, special_reg));
     try list.append(runtime.allocator, put_into_port(0, special_reg, reg));
     return .{ .reg = reg, .instrs = try list.toOwnedSlice(runtime.allocator) };
@@ -415,7 +382,7 @@ pub fn compileCondition(
             if (atom.portlist) |ports| {
                 if (atom.isNumber()) {
                     const num = ports[0].val.name;
-                    compiled.* = .{ .atom = .{ .special = try VM.getNumberType(num) } };
+                    compiled.* = .{ .atom = .{ .special = try Compilation.getNumberType(num) } };
                 }
             } else {
                 if (port_info.get(atom.name)) |port_idx| {
@@ -546,8 +513,8 @@ pub const CompilationError = struct {
         NameUsedTwice,
     };
 
-    const Printing = @import("printing.zig");
-    const Token = @import("../lexer.zig").Token;
+    const Printing = @import("printing");
+    const Token = AST.Lexer.Token;
 
     fn multiLineMarkup(
         connectedSlices: []const TokenSlice,

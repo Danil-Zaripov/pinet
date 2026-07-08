@@ -1,15 +1,19 @@
-//! VM.Runtime is a fat struct, a pointer to which is passed
+//! SharedRuntime is a fat struct, a pointer to which is passed
 //! around anywhere there is something shared in the vm.
 //!
 //! Replaces ugly(?) global variables.
 const std = @import("std");
-const Types = @import("types.zig");
-const Instruction = @import("instruction.zig");
-const Builtin = @import("builtin.zig");
-const Importer = @import("importer.zig");
-const Token = @import("../lexer.zig").Token;
 
-const Config = @import("../vm.zig").Config;
+pub const Types = @import("types.zig");
+pub const Memory = @import("memory.zig");
+
+const Instruction = @import("compilation").Instruction;
+const VM = @import("vm");
+const Builtin = VM.Builtin;
+const Importer = VM.Importer;
+const Token = @import("ast").Lexer.Token;
+
+const Config = @import("config");
 
 const Self = @This();
 
@@ -43,7 +47,7 @@ pub const IdCountingHashMap = struct {
         };
     }
 
-    pub fn findKey(self: *IdCountingHashMap, val: Agent.Id) ?[]const u8 {
+    pub fn findKey(self: *const IdCountingHashMap, val: Agent.Id) ?[]const u8 {
         var iterator = self.map.iterator();
         while (iterator.next()) |kv| {
             if (kv.value_ptr.* == val) {

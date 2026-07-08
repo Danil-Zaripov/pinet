@@ -1,3 +1,6 @@
+pub const Parser = @import("parser.zig");
+pub const Lexer = @import("lexer.zig");
+
 pub const number_special_ident = "#number";
 pub const cons_list_ident = "Cons";
 pub const nil_list_ident = "Nil";

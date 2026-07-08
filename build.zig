@@ -1,5 +1,5 @@
 const std = @import("std");
-const HeapKind = @import("src/vm/memory.zig").HeapKind;
+const HeapKind = @import("src/shared_runtime/memory.zig").HeapKind;
 
 pub const DebugPrintConfig = struct {
     print_compiled_instructions: bool = false,
@@ -42,10 +42,44 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const mod = b.addModule("pinet", .{
-        .root_source_file = b.path("src/root.zig"),
-        .target = target,
+    const mod_ast = b.addModule("ast", .{
+        .root_source_file = b.path("src/ast/ast.zig"),
     });
+
+    const mod_printing = b.addModule("printing", .{
+        .root_source_file = b.path("src/printing/printing.zig"),
+    });
+
+    const mod_shared_runtime = b.addModule("shared_runtime", .{
+        .root_source_file = b.path("src/shared_runtime/runtime.zig"),
+        .imports = &.{
+            .{ .name = "ast", .module = mod_ast },
+        },
+    });
+
+    const mod_compilation = b.addModule("compilation", .{
+        .root_source_file = b.path("src/compilation/compilation.zig"),
+        .imports = &.{
+            .{ .name = "ast", .module = mod_ast },
+            .{ .name = "printing", .module = mod_printing },
+            .{ .name = "shared_runtime", .module = mod_shared_runtime },
+        },
+    });
+
+    const mod_vm = b.addModule("vm", .{
+        .root_source_file = b.path("src/vm/vm.zig"),
+        .imports = &.{
+            .{ .name = "compilation", .module = mod_compilation },
+            .{ .name = "ast", .module = mod_ast },
+            .{ .name = "printing", .module = mod_printing },
+            .{ .name = "shared_runtime", .module = mod_shared_runtime },
+        },
+    });
+
+    mod_shared_runtime.addImport("vm", mod_vm);
+    mod_shared_runtime.addImport("compilation", mod_compilation);
+    mod_printing.addImport("shared_runtime", mod_shared_runtime);
+    mod_ast.addImport("printing", mod_printing);
 
     const exe = b.addExecutable(.{
         .name = "pinet",
@@ -54,31 +88,42 @@ pub fn build(b: *std.Build) void {
             .target = target,
             .optimize = optimize,
             .imports = &.{
-                .{ .name = "pinet", .module = mod },
+                .{ .name = "ast", .module = mod_ast },
+                .{ .name = "printing", .module = mod_printing },
+                .{ .name = "compilation", .module = mod_compilation },
+                .{ .name = "shared_runtime", .module = mod_shared_runtime },
+                .{ .name = "vm", .module = mod_vm },
             },
         }),
         // To use llvm debugger:
         // .use_llvm = true,
     });
 
+    // for perf
+    exe.root_module.omit_frame_pointer = b.option(bool, "no-omit-frame-pointer", "Do not omit frame pointer");
+
     const clap = b.dependency("clap", .{});
     exe.root_module.addImport("clap", clap.module("clap"));
 
     const debug_printing = DebugPrintConfig{
-        .print_compiled_instructions = b.option(bool, "print-compiled-instructions", "print compiled instructions") orelse false,
-        .print_interactions = b.option(bool, "print-interactions", "print interaction points when they happen") orelse false,
-        .print_memory_usage = b.option(bool, "print-memory-usage", "print memory usage after top-level interactions") orelse false,
-        .print_frees = b.option(bool, "print-frees", "print message when a agent/name free happens") orelse false,
-        .benchmark = b.option(bool, "benchmark", "print time spent in interactions") orelse false,
+        .print_compiled_instructions = b.option(bool, "print-compiled-instructions", "Print compiled instructions") orelse false,
+        .print_interactions = b.option(bool, "print-interactions", "Print interaction points when they happen") orelse false,
+        .print_memory_usage = b.option(bool, "print-memory-usage", "Print memory usage after top-level interactions") orelse false,
+        .print_frees = b.option(bool, "print-frees", "Print message when a agent/name free happens") orelse false,
+        .benchmark = b.option(bool, "benchmark", "Print time spent in interactions") orelse false,
     };
 
     const options = b.addOptions();
     options.addOption(DebugPrintConfig, "debug_printing", debug_printing);
 
-    const heap_kind = b.option(HeapKind, "heap", "which heap implementation to use") orelse .basic;
+    const heap_kind = b.option(HeapKind, "heap", "Which heap implementation to use") orelse .basic;
     options.addOption(HeapKind, "heap", heap_kind);
 
-    mod.addOptions("config", options);
+    const mod_options = options.createModule();
+
+    mod_printing.addImport("config", mod_options);
+    mod_shared_runtime.addImport("config", mod_options);
+    mod_vm.addImport("config", mod_options);
 
     b.installArtifact(exe);
 
@@ -93,12 +138,6 @@ pub fn build(b: *std.Build) void {
         run_cmd.addArgs(args);
     }
 
-    const mod_tests = b.addTest(.{
-        .root_module = mod,
-    });
-
-    const run_mod_tests = b.addRunArtifact(mod_tests);
-
     const exe_tests = b.addTest(.{
         .root_module = exe.root_module,
     });
@@ -107,14 +146,13 @@ pub fn build(b: *std.Build) void {
 
     const golden_testing_run_cmd, const run_golden_tests_tests = setupGoldenTesting(b, target, optimize);
 
-    const generate_goldens = b.option(bool, "generate", "generate golden tests") orelse false;
+    const generate_goldens = b.option(bool, "generate", "Generate golden tests") orelse false;
     const mode_str = if (generate_goldens) "generate" else "compare";
 
     golden_testing_run_cmd.addArtifactArg(exe);
     golden_testing_run_cmd.addArg(mode_str);
 
     const test_step = b.step("test", "Run tests");
-    test_step.dependOn(&run_mod_tests.step);
     test_step.dependOn(&run_exe_tests.step);
     test_step.dependOn(&run_golden_tests_tests.step);
     test_step.dependOn(&golden_testing_run_cmd.step);
