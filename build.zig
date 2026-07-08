@@ -100,23 +100,23 @@ pub fn build(b: *std.Build) void {
     });
 
     // for perf
-    exe.root_module.omit_frame_pointer = b.option(bool, "no-omit-frame-pointer", "do not omit frame pointer");
+    exe.root_module.omit_frame_pointer = b.option(bool, "no-omit-frame-pointer", "Do not omit frame pointer");
 
     const clap = b.dependency("clap", .{});
     exe.root_module.addImport("clap", clap.module("clap"));
 
     const debug_printing = DebugPrintConfig{
-        .print_compiled_instructions = b.option(bool, "print-compiled-instructions", "print compiled instructions") orelse false,
-        .print_interactions = b.option(bool, "print-interactions", "print interaction points when they happen") orelse false,
-        .print_memory_usage = b.option(bool, "print-memory-usage", "print memory usage after top-level interactions") orelse false,
-        .print_frees = b.option(bool, "print-frees", "print message when a agent/name free happens") orelse false,
-        .benchmark = b.option(bool, "benchmark", "print time spent in interactions") orelse false,
+        .print_compiled_instructions = b.option(bool, "print-compiled-instructions", "Print compiled instructions") orelse false,
+        .print_interactions = b.option(bool, "print-interactions", "Print interaction points when they happen") orelse false,
+        .print_memory_usage = b.option(bool, "print-memory-usage", "Print memory usage after top-level interactions") orelse false,
+        .print_frees = b.option(bool, "print-frees", "Print message when a agent/name free happens") orelse false,
+        .benchmark = b.option(bool, "benchmark", "Print time spent in interactions") orelse false,
     };
 
     const options = b.addOptions();
     options.addOption(DebugPrintConfig, "debug_printing", debug_printing);
 
-    const heap_kind = b.option(HeapKind, "heap", "which heap implementation to use") orelse .basic;
+    const heap_kind = b.option(HeapKind, "heap", "Which heap implementation to use") orelse .basic;
     options.addOption(HeapKind, "heap", heap_kind);
 
     const mod_options = options.createModule();
@@ -146,7 +146,7 @@ pub fn build(b: *std.Build) void {
 
     const golden_testing_run_cmd, const run_golden_tests_tests = setupGoldenTesting(b, target, optimize);
 
-    const generate_goldens = b.option(bool, "generate", "generate golden tests") orelse false;
+    const generate_goldens = b.option(bool, "generate", "Generate golden tests") orelse false;
     const mode_str = if (generate_goldens) "generate" else "compare";
 
     golden_testing_run_cmd.addArtifactArg(exe);
