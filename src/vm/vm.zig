@@ -103,80 +103,96 @@ pub fn deinit(self: *Self) void {
 }
 
 pub fn getNumberType(str: []const u8) !Types.Special {
-    const contains = struct {
-        pub fn contains(s: []const u8, selected: u8) bool {
-            for (s) |char| {
-                if (char == selected) return true;
-            }
-            return false;
-        }
-    }.contains;
-
-    if (contains(str, '.')) {
-        return Types.Special{ .float = try std.fmt.parseFloat(f32, str) };
-    } else {
-        return Types.Special{ .integer = try std.fmt.parseInt(i32, str, 10) };
-    }
+    return if (std.mem.findScalar(u8, str, '.')) |_|
+        .{ .float = try std.fmt.parseFloat(f32, str) }
+    else
+        .{ .integer = try std.fmt.parseInt(i32, str, 10) };
 }
 
-pub fn createObject(vm: *VirtualMachine, obj: AST.Object) !Value {
+pub fn objToValueNumber(vm: *VirtualMachine, num: AST.Object) !Value {
+    const numtype = try getNumberType(num.name);
+    const agent_id = Builtin.BuiltinNameMap.get(Builtin.number_builtin_ident).?;
+    var agent = try vm.createAgent(agent_id);
+
+    agent.ports[0] = Value{
+        .special = numtype,
+    };
+
+    return .{ .agent = agent };
+}
+
+pub fn objToValueAgent(
+    vm: *VirtualMachine,
+    obj: AST.Object,
+) anyerror!Value {
+    const portlist = obj.portlist.?;
+    const agent_id = try vm.runtime.agent_id_map.get(obj.name);
+    const arity = try vm.runtime.agent_arities.get(agent_id, portlist.len);
+    var agent = try vm.agent_heap.allocOne();
+
+    agent.* = .{ .id = agent_id, .ports = @splat(null) };
+    {
+        var idx: u8 = 0;
+        while (idx < arity) : (idx += 1) {
+            // Temporary names are needed
+            agent.ports[idx] = try objToValue(vm, portlist[idx].val);
+        }
+    }
+
+    return Value{ .agent = agent };
+}
+
+pub fn objToValueName(vm: *VirtualMachine, obj: AST.Object) !Value {
+    const name = try vm.name_heap.allocOne();
+
+    name.* = .{ .port = null };
+    try vm.runtime.associated_names.put(obj.name, name);
+
+    return .{ .name = name };
+}
+
+pub fn objToValue(vm: *VirtualMachine, obj: AST.Object) !Value {
     if (obj.isNumber()) {
         const num = obj.portlist.?[0].val;
-        const numtype = try getNumberType(num.name);
-        const agent_id = Builtin.BuiltinNameMap.get(Builtin.number_builtin_ident).?;
-        var agent = try vm.createAgent(agent_id);
-        agent.ports[0] = Value{
-            .special = numtype,
-        };
-
-        return .{ .agent = agent };
+        return objToValueNumber(vm, num);
     }
-    if (obj.portlist) |portlist| {
-        const agent_id = try vm.runtime.agent_id_map.get(obj.name);
-        const arity = try vm.runtime.agent_arities.get(agent_id, obj.portlist.?.len);
-        var agent = try vm.agent_heap.allocOne();
-        agent.* = .{ .id = agent_id, .ports = @splat(null) };
-        {
-            var idx: u8 = 0;
-            while (idx < arity) : (idx += 1) {
-                // Temporary names are needed
-                agent.ports[idx] = try createObject(vm, portlist[idx].val);
-            }
-        }
-        return Value{ .agent = agent };
-    } else {
-        if (vm.runtime.associated_names.getPtr(obj.name)) |maybe_name| {
-            if (maybe_name.*) |name| {
-                if (name.port) |port| {
-                    defer vm.name_heap.freeOne(name);
-                    // if the names are interconnected, then
-                    // we have to free from the cyclic crossreference
-                    if (port == .name) {
-                        if (port.name.port) |other_name| {
-                            if (other_name == .name and other_name.name == name) {
-                                port.name.port = null;
-                            }
+
+    if (obj.portlist) |_| {
+        return objToValueAgent(vm, obj);
+    }
+
+    if (vm.runtime.associated_names.getPtr(obj.name)) |maybe_name| {
+        if (maybe_name.*) |name| {
+            if (name.port) |port| {
+                defer vm.name_heap.freeOne(name);
+                // if the names are interconnected, then
+                // we have to free from the cyclic crossreference
+                if (port == .name) {
+                    if (port.name.port) |other_name| {
+                        if (other_name == .name and other_name.name == name) {
+                            port.name.port = null;
                         }
                     }
-                    // free name
-                    maybe_name.* = null;
-                    return port;
-                } else {
-                    return .{ .name = name };
                 }
+                // free name
+                maybe_name.* = null;
+                return port;
+            } else {
+                return .{ .name = name };
             }
-        } else {
-            const name = try vm.name_heap.allocOne();
-            name.* = .{ .port = null };
-            try vm.runtime.associated_names.put(obj.name, name);
-            return Value{ .name = name };
         }
     }
 
-    unreachable;
+    return objToValueName(vm, obj);
 }
 
-pub fn execInstructions(vm: *VirtualMachine, instrs: []Instruction, lagent: *Agent, ragent: *Agent, wildcarded: bool) !void {
+pub fn execInstructions(
+    vm: *VirtualMachine,
+    instrs: []Instruction,
+    lagent: *Agent,
+    ragent: *Agent,
+    wildcarded: bool,
+) !void {
     for (instrs) |instruction| {
         switch (instruction.tag) {
             .mk_agent => |id| {
@@ -289,8 +305,8 @@ pub fn runProgram(vm: *VirtualMachine, program: AST.Program) !void {
                 try vm.runtime.importer.import(final_import_path, vm.runtime);
             },
             .active_pair => |ap| {
-                const lhs = try createObject(vm, ap.lhs.val);
-                const rhs = try createObject(vm, ap.rhs.val);
+                const lhs = try objToValue(vm, ap.lhs.val);
+                const rhs = try objToValue(vm, ap.rhs.val);
                 const eq = Equation{ .lhs = lhs, .rhs = rhs };
                 try vm.runtime.equation_deque.pushBack(vm.runtime.allocator, eq);
 

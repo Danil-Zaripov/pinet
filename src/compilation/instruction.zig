@@ -535,6 +535,7 @@ pub const CompilationError = struct {
         for (connectedSlices) |slice| {
             const starting_line = tokens[slice.start].loc.start.line;
             const ending_line = tokens[slice.end].loc.end.line;
+
             while (idx < starting_line) : (idx += 1) {
                 try list.append(gpa, try lines.getEnumerated(arena, idx));
             }
@@ -547,34 +548,39 @@ pub const CompilationError = struct {
                 while (idx <= ending_line) : (idx += 1) {
                     const enumerated = try lines.getEnumerated(arena, idx);
                     try list.append(gpa, enumerated);
+
+                    const markup_line = try arena.alloc(u8, enumerated.len);
+
                     if (idx == starting_line) {
-                        const markup_line = try arena.alloc(u8, enumerated.len);
-                        @memset(markup_line, ' ');
                         const ch = tokens[slice.start].loc.start.ch + Printing.Lines.enumeration_padding;
-                        markup_line[ch] = '^';
-                        if (ch + 1 < markup_line.len) @memset(markup_line[ch + 1 ..], '~');
-                        try list.append(gpa, markup_line);
-                    } else if (idx == ending_line) {
-                        const markup_line = try arena.alloc(u8, enumerated.len);
+
                         @memset(markup_line, ' ');
+                        markup_line[ch] = '^';
+
+                        if (ch + 1 < markup_line.len)
+                            @memset(markup_line[ch + 1 ..], '~');
+                    } else if (idx == ending_line) {
                         const ch = tokens[slice.end].loc.end.ch + Printing.Lines.enumeration_padding;
+
+                        @memset(markup_line, ' ');
                         @memset(markup_line[Printing.Lines.enumeration_padding .. ch + 1], '~');
-                        try list.append(gpa, markup_line);
                     } else {
-                        const markup_line = try arena.alloc(u8, enumerated.len);
                         @memset(markup_line[0..Printing.Lines.enumeration_padding], ' ');
                         @memset(markup_line[Printing.Lines.enumeration_padding..], '~');
-                        try list.append(gpa, markup_line);
                     }
+
+                    try list.append(gpa, markup_line);
                 }
             }
         }
+
         var ret: []const u8 = "";
         for (list.items) |line| {
             const cur = ret;
             defer gpa.free(cur);
             ret = try std.fmt.allocPrint(gpa, "{s}\n{s}", .{ ret, line });
         }
+
         return ret;
     }
 

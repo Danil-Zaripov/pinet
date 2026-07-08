@@ -313,11 +313,11 @@ pub fn processDirectory(ctx: Context, path_to_dir: []const u8, what_are_we_getti
     var _arena = std.heap.ArenaAllocator.init(ctx.gpa);
     defer _arena.deinit();
     const arena = _arena.allocator();
-    
+
     const path_to_dir_resolved = try std.fs.path.resolve(ctx.gpa, &.{path_to_dir});
     defer ctx.gpa.free(path_to_dir_resolved);
-    
-    const cwd = std.Io.Dir.cwd();    
+
+    const cwd = std.Io.Dir.cwd();
     const dir = try cwd.openDir(ctx.io, path_to_dir_resolved, .{ .access_sub_paths = false, .iterate = true });
     defer dir.close(ctx.io);
 
@@ -428,7 +428,7 @@ pub fn main(init: std.process.Init) !void {
     const stdout_summary = try processDirectory(ctx, stdout_tests_path, .stdout);
     const stdout_summary_text = try stdout_summary.getText(ctx.gpa);
     defer ctx.gpa.free(stdout_summary_text);
-   
+
     const stderr_summary = try processDirectory(ctx, stderr_tests_path, .stderr);
     const stderr_summary_text = try stderr_summary.getText(ctx.gpa);
     defer ctx.gpa.free(stderr_summary_text);
