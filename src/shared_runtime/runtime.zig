@@ -138,8 +138,9 @@ agent_arities: ArityMap,
 associated_names: std.StringHashMap(?*Name),
 io: std.Io,
 threaded: *std.Io.Threaded,
-arena: *std.heap.ArenaAllocator,
-allocator: std.mem.Allocator,
+_arena: *std.heap.ArenaAllocator,
+arena: std.mem.Allocator,
+gpa: std.mem.Allocator,
 
 // Potentially for threaded
 equation_queue: std.Io.Queue(Equation),
@@ -167,8 +168,9 @@ pub fn init(gpa: std.mem.Allocator, page: std.mem.Allocator, main_file: File) !S
     try Builtin.init(allocator);
 
     return .{
-        .arena = arena,
-        .allocator = allocator,
+        ._arena = arena,
+        .arena = allocator,
+        .gpa = gpa,
         .agent_id_map = try IdCountingHashMap.init(allocator),
         .associated_names = std.StringHashMap(?*Name).init(allocator),
         .equation_queue = std.Io.Queue(Equation).init(&.{}),
@@ -183,11 +185,11 @@ pub fn init(gpa: std.mem.Allocator, page: std.mem.Allocator, main_file: File) !S
         .main_file = main_file,
     };
 }
-pub fn deinit(self: *Self, gpa: std.mem.Allocator) void {
+pub fn deinit(self: *Self) void {
     Builtin.deinit();
     self.threaded.deinit();
-    gpa.destroy(self.threaded);
-    self.arena.deinit();
-    gpa.destroy(self.arena);
-    self.importer.deinit();
+    self.gpa.destroy(self.threaded);
+    self._arena.deinit();
+    self.gpa.destroy(self._arena);
+    self.importer.deinit(self.gpa);
 }

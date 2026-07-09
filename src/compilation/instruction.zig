@@ -140,6 +140,15 @@ pub fn debugPrintInstruction(runtime: *const Runtime, conditioned_rules: []Condi
     }
 }
 
+/// Assuming gpa owns the std.ArrayList(T), converts to owned list,
+/// dupes the list using arena and returns it.
+fn passToArena(comptime T: type, lst: *std.ArrayList(T), gpa: std.mem.Allocator, arena: std.mem.Allocator) ![]T {
+    const owned = try lst.toOwnedSlice(gpa);
+    defer gpa.free(owned);
+    const duped = try arena.dupe(T, owned);
+    return duped;
+}
+
 pub const CompiledRule = struct {
     CompiledLhs,
     []ConditionedRule,
@@ -196,12 +205,13 @@ pub fn compileNumber(
     const agent_id = runtime.agent_id_map.map.get(AST.number_special_ident).?;
     var list = std.ArrayList(Instruction).empty;
     const reg = scope.getFree();
-    try list.append(runtime.allocator, mk_agent(agent_id, reg));
+    try list.append(runtime.gpa, mk_agent(agent_id, reg));
     const special_reg = scope.getFree();
     const special = try Compilation.getNumberType(obj.portlist.?[0].val.name);
-    try list.append(runtime.allocator, mk_special(special, special_reg));
-    try list.append(runtime.allocator, put_into_port(0, special_reg, reg));
-    return .{ .reg = reg, .instrs = try list.toOwnedSlice(runtime.allocator) };
+    try list.append(runtime.gpa, mk_special(special, special_reg));
+    try list.append(runtime.gpa, put_into_port(0, special_reg, reg));
+
+    return .{ .reg = reg, .instrs = try passToArena(Instruction, &list, runtime.gpa, runtime.arena) };
 }
 
 pub fn compileName(
@@ -228,10 +238,10 @@ pub fn compileName(
         }
     } else {
         name_info = try scope.associate(name, na.tslice);
-        try list.append(runtime.allocator, Instruction.mk_name(name_info.location));
+        try list.append(runtime.gpa, Instruction.mk_name(name_info.location));
     }
 
-    return .{ .name_info = name_info, .instrs = try list.toOwnedSlice(runtime.allocator) };
+    return .{ .name_info = name_info, .instrs = try passToArena(Instruction, &list, runtime.gpa, runtime.arena) };
 }
 
 pub fn compileAgent(
@@ -244,7 +254,7 @@ pub fn compileAgent(
     const id = try runtime.agent_id_map.get(ag.name);
     const arity = try runtime.agent_arities.get(id, ag.portlist.?.len);
     const reg = scope.getFree();
-    try list.append(runtime.allocator, Instruction.mk_agent(id, reg));
+    try list.append(runtime.gpa, Instruction.mk_agent(id, reg));
 
     for (0..arity) |idx| {
         const port = ag.portlist.?[idx];
@@ -252,21 +262,21 @@ pub fn compileAgent(
             if (port.val.isNumber()) {
                 // number
                 const compiledNumber = try compileNumber(runtime, port.val, scope);
-                try list.appendSlice(runtime.allocator, compiledNumber.instrs);
-                try list.append(runtime.allocator, Instruction.put_into_port(idx, compiledNumber.reg, reg));
+                try list.appendSlice(runtime.gpa, compiledNumber.instrs);
+                try list.append(runtime.gpa, Instruction.put_into_port(idx, compiledNumber.reg, reg));
             } else {
                 const compiledAgent = try compileAgent(runtime, port.val, scope, diag);
-                try list.appendSlice(runtime.allocator, compiledAgent.instrs);
-                try list.append(runtime.allocator, Instruction.put_into_port(idx, compiledAgent.reg, reg));
+                try list.appendSlice(runtime.gpa, compiledAgent.instrs);
+                try list.append(runtime.gpa, Instruction.put_into_port(idx, compiledAgent.reg, reg));
             }
         } else {
             const compiledName = try compileName(runtime, port, scope, diag);
-            try list.appendSlice(runtime.allocator, compiledName.instrs);
-            try list.append(runtime.allocator, Instruction.put_into_port(idx, compiledName.name_info.location, reg));
+            try list.appendSlice(runtime.gpa, compiledName.instrs);
+            try list.append(runtime.gpa, Instruction.put_into_port(idx, compiledName.name_info.location, reg));
         }
     }
 
-    return .{ .reg = reg, .instrs = try list.toOwnedSlice(runtime.allocator) };
+    return .{ .reg = reg, .instrs = try passToArena(Instruction, &list, runtime.gpa, runtime.arena) };
 }
 
 pub fn compileTerm(runtime: *Runtime, obj: AST.Node(AST.Object), scope: *Scope, diag: *CompilationError) !CompiledTerm {
@@ -290,11 +300,11 @@ pub fn compilePairs(
     diag: *CompilationError,
 ) !CompiledPairs {
     var list = std.ArrayList(Instruction).empty;
-    var scope = Scope.init(runtime.allocator);
+    var scope = Scope.init(runtime.gpa);
     defer scope.deinit();
 
     // init the "arguments"
-    try list.append(runtime.allocator, load_arguments());
+    try list.append(runtime.gpa, load_arguments());
 
     for (lhs.val.portlist.?) |port_node| {
         const port = port_node.val;
@@ -361,12 +371,12 @@ pub fn compilePairs(
         const pair = node_pair.val;
         const compiledLhs = try compileTerm(runtime, pair.lhs, &scope, diag);
         const compiledRhs = try compileTerm(runtime, pair.rhs, &scope, diag);
-        try list.appendSlice(runtime.allocator, compiledLhs.instrs);
-        try list.appendSlice(runtime.allocator, compiledRhs.instrs);
-        try list.append(runtime.allocator, Instruction.push(compiledLhs.reg, compiledRhs.reg));
+        try list.appendSlice(runtime.gpa, compiledLhs.instrs);
+        try list.appendSlice(runtime.gpa, compiledRhs.instrs);
+        try list.append(runtime.gpa, Instruction.push(compiledLhs.reg, compiledRhs.reg));
     }
 
-    return try list.toOwnedSlice(runtime.allocator);
+    return try passToArena(Instruction, &list, runtime.gpa, runtime.arena);
 }
 
 pub fn compileCondition(
@@ -375,7 +385,7 @@ pub fn compileCondition(
     condition: *AST.Node(AST.Expression),
     diag: *CompilationError,
 ) !*CompiledCondition {
-    const compiled = try runtime.allocator.create(CompiledCondition);
+    const compiled = try runtime.arena.create(CompiledCondition);
     switch (condition.val) {
         .atom => |atom_node| {
             const atom = atom_node.val;
@@ -422,9 +432,11 @@ pub fn compileWildcard(
 
     _ = try runtime.agent_arities.get(agent_id, agent.val.portlist.?.len);
 
-    var lst = try std.ArrayList(ConditionedRule).initCapacity(runtime.allocator, 1);
+    var lst = try std.ArrayList(ConditionedRule).initCapacity(runtime.gpa, 1);
+    defer lst.deinit(runtime.gpa);
 
-    var port_info: std.StringHashMap(Port) = .init(runtime.allocator);
+    var port_info: std.StringHashMap(Port) = .init(runtime.gpa);
+    defer port_info.deinit();
 
     for (agent.val.portlist.?, 0..) |port, idx| {
         // agent is lhs by default
@@ -435,7 +447,7 @@ pub fn compileWildcard(
 
     for (rule_exprs) |rule_expr| {
         const instructions = try compilePairs(runtime, agent, name, rule_expr.pairs, diag);
-        try lst.append(runtime.allocator, .{
+        try lst.append(runtime.gpa, .{
             .condition = if (rule_expr.expr) |condition| try compileCondition(runtime, &port_info, condition, diag) else null,
             .instructions = instructions,
         });
@@ -443,7 +455,7 @@ pub fn compileWildcard(
 
     return CompiledRule{
         .{ .wildcard = agent_id },
-        try lst.toOwnedSlice(runtime.allocator),
+        try passToArena(ConditionedRule, &lst, runtime.gpa, runtime.arena),
     };
 }
 
@@ -465,9 +477,11 @@ pub fn compileRule(runtime: *Runtime, rule: AST.Rule, diag: *CompilationError) !
     _ = try runtime.agent_arities.get(lhs_id, rule.lhs.val.portlist.?.len);
     _ = try runtime.agent_arities.get(rhs_id, rule.rhs.val.portlist.?.len);
 
-    var lst = try std.ArrayList(ConditionedRule).initCapacity(runtime.allocator, 1);
+    var lst = try std.ArrayList(ConditionedRule).initCapacity(runtime.gpa, 1);
+    defer lst.deinit(runtime.gpa);
 
-    var port_info: std.StringHashMap(Port) = .init(runtime.allocator);
+    var port_info: std.StringHashMap(Port) = .init(runtime.gpa);
+    defer port_info.deinit();
 
     for (rule.lhs.val.portlist.?, 0..) |port, idx| {
         try port_info.put(port.val.name, Port{ .idx = idx, .owner = .lhs });
@@ -479,7 +493,7 @@ pub fn compileRule(runtime: *Runtime, rule: AST.Rule, diag: *CompilationError) !
 
     for (rule.rule_exprs) |rule_expr| {
         const instructions = try compilePairs(runtime, rule.lhs, rule.rhs, rule_expr.pairs, diag);
-        try lst.append(runtime.allocator, .{
+        try lst.append(runtime.gpa, .{
             .condition = if (rule_expr.expr) |condition| try compileCondition(runtime, &port_info, condition, diag) else null,
             .instructions = instructions,
         });
@@ -487,7 +501,7 @@ pub fn compileRule(runtime: *Runtime, rule: AST.Rule, diag: *CompilationError) !
 
     return CompiledRule{
         .{ .agents = .{ .lhs = lhs_id, .rhs = rhs_id } },
-        try lst.toOwnedSlice(runtime.allocator),
+        try passToArena(ConditionedRule, &lst, runtime.gpa, runtime.arena),
     };
 }
 

@@ -160,7 +160,7 @@ pub fn dupCopy(vm: *VM, self: *Agent, ag: *Agent) BuiltinAgentError!void {
     defer vm.agent_heap.freeOne(self);
     // This allocates :(
 
-    var arena = std.heap.ArenaAllocator.init(vm.gpa);
+    var arena = std.heap.ArenaAllocator.init(vm.runtime.gpa);
     defer arena.deinit();
     const _allocator = arena.allocator();
 

@@ -12,23 +12,23 @@ const Self = @This();
 const Importer = Self;
 
 imported: std.StringHashMap([:0]const u8),
-gpa: std.mem.Allocator,
 
 pub const Error = error{
     ImportedExtensionNotIn,
 };
 
 pub fn import(self: *Self, path: []const u8, runtime: *Runtime) !void {
-    const resolved_path = try std.fs.path.resolve(self.gpa, &.{path});
+    const gpa = runtime.gpa;
+    const resolved_path = try std.fs.path.resolve(gpa, &.{path});
     // shouldn't use "path" ever again
-    defer self.gpa.free(resolved_path);
+    defer gpa.free(resolved_path);
 
     if (!std.mem.eql(u8, std.fs.path.extension(resolved_path), ".in")) {
         return Error.ImportedExtensionNotIn;
     }
 
     if (self.imported.contains(resolved_path)) {
-        self.gpa.free(resolved_path);
+        gpa.free(resolved_path);
         return;
     }
 
@@ -36,23 +36,23 @@ pub fn import(self: *Self, path: []const u8, runtime: *Runtime) !void {
         std.Io.Dir.cwd(),
         runtime.io,
         resolved_path,
-        self.gpa,
+        gpa,
         .unlimited,
         .of(u8),
         0,
     );
     try self.imported.put(resolved_path, contents);
 
-    const tokens = try Lexer.tokenize(self.gpa, contents);
-    defer self.gpa.free(tokens);
+    const tokens = try Lexer.tokenize(gpa, contents);
+    defer gpa.free(tokens);
     const file = Runtime.File{
         .contents = contents,
         .path = resolved_path,
         .tokens = tokens,
     };
 
-    var parser = try Parser.init(tokens, self.gpa, self.gpa);
-    defer parser.deinit(self.gpa);
+    var parser = try Parser.init(tokens, gpa, gpa);
+    defer parser.deinit(gpa);
 
     const program = parser.parseProgram() catch |err| {
         if (err == Parser.Error.ErrorDuringParsing) {
@@ -74,9 +74,9 @@ pub fn import(self: *Self, path: []const u8, runtime: *Runtime) !void {
                                 try diag.getPrettyMessage(
                                     file.contents,
                                     file.tokens,
-                                    self.gpa,
+                                    gpa,
                                 );
-                            defer self.gpa.free(message);
+                            defer gpa.free(message);
                             std.debug.print("Imported file {s}\n{s}", .{ file.path, message });
                             return error.CompilationError;
                         },
@@ -96,11 +96,11 @@ pub fn import(self: *Self, path: []const u8, runtime: *Runtime) !void {
                 }
             },
             .use_stmt => |import_path| {
-                const final_import_path = if (std.fs.path.isAbsolute(import_path)) try self.gpa.dupe(u8, import_path) else blk: {
+                const final_import_path = if (std.fs.path.isAbsolute(import_path)) try gpa.dupe(u8, import_path) else blk: {
                     const dirname = std.fs.path.dirname(resolved_path).?;
-                    break :blk try std.fs.path.resolve(self.gpa, &.{ dirname, import_path });
+                    break :blk try std.fs.path.resolve(gpa, &.{ dirname, import_path });
                 };
-                defer self.gpa.free(final_import_path);
+                defer gpa.free(final_import_path);
 
                 try import(self, final_import_path, runtime);
             },
@@ -113,15 +113,14 @@ pub fn import(self: *Self, path: []const u8, runtime: *Runtime) !void {
 
 pub fn init(gpa: std.mem.Allocator) Importer {
     return .{
-        .gpa = gpa,
         .imported = .init(gpa),
     };
 }
 
-pub fn deinit(self: *Self) void {
+pub fn deinit(self: *Self, gpa: std.mem.Allocator) void {
     var iter = self.imported.valueIterator();
     while (iter.next()) |contents| {
-        self.gpa.free(contents.*);
+        gpa.free(contents.*);
     }
     self.imported.deinit();
 }

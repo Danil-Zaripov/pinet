@@ -34,7 +34,6 @@ agent_heap: Memory.Heap(Agent),
 registers: [number_of_registers]Value,
 
 runtime: *Runtime,
-gpa: std.mem.Allocator,
 
 pub fn createAgent(vm: *VirtualMachine, id: Agent.Id) !*Agent {
     const ag = try vm.agent_heap.allocOne();
@@ -50,11 +49,11 @@ pub fn createNumberAgent(vm: *VirtualMachine, num: Types.Special) !*Agent {
 }
 
 pub fn pushEquation(vm: *VirtualMachine, eq: Equation) !void {
-    try vm.runtime.equation_deque.pushBack(vm.runtime.allocator, eq);
+    try vm.runtime.equation_deque.pushBack(vm.runtime.arena, eq);
 }
 
 pub fn pushUrgent(vm: *VirtualMachine, eq: Equation) !void {
-    try vm.runtime.urgent_deque.pushBack(vm.runtime.allocator, eq);
+    try vm.runtime.urgent_deque.pushBack(vm.runtime.arena, eq);
 }
 
 fn HeapType(comptime T: type) type {
@@ -85,21 +84,20 @@ fn heapDeinit(comptime T: type, heap: Memory.Heap(T), gpa: std.mem.Allocator) vo
     gpa.destroy(basic_heap);
 }
 
-pub fn init(gpa: std.mem.Allocator, runtime: *Runtime) !Self {
+pub fn init(runtime: *Runtime) !Self {
     const default_heap_size = 1024;
 
     return .{
         .runtime = runtime,
-        .agent_heap = try heapInit(Agent, default_heap_size, gpa),
-        .name_heap = try heapInit(Name, default_heap_size, gpa),
+        .agent_heap = try heapInit(Agent, default_heap_size, runtime.gpa),
+        .name_heap = try heapInit(Name, default_heap_size, runtime.gpa),
         .registers = @splat(undefined),
-        .gpa = gpa,
     };
 }
 
 pub fn deinit(self: *Self) void {
-    heapDeinit(Agent, self.agent_heap, self.gpa);
-    heapDeinit(Name, self.name_heap, self.gpa);
+    heapDeinit(Agent, self.agent_heap, self.runtime.gpa);
+    heapDeinit(Name, self.name_heap, self.runtime.gpa);
 }
 
 pub fn getNumberType(str: []const u8) !Types.Special {
@@ -211,7 +209,7 @@ pub fn execInstructions(
                     .lhs = vm.registers[instruction.operand1],
                     .rhs = vm.registers[instruction.operand2],
                 };
-                try vm.runtime.equation_deque.pushBack(vm.runtime.allocator, eq);
+                try vm.pushEquation(eq);
             },
             .mk_name => {
                 const name = try vm.name_heap.allocOne();
@@ -267,7 +265,7 @@ pub fn runProgram(vm: *VirtualMachine, program: AST.Program) !void {
                 if (vm.runtime.associated_names.get(name_to_print.val)) |maybe_name| {
                     if (maybe_name) |name| {
                         if (name.port) |port| {
-                            try Printing.tryPrint(vm.runtime, vm.gpa, port);
+                            try Printing.tryPrint(vm.runtime, vm.runtime.gpa, port);
                         } else {
                             std.debug.print("<MOVED>\n", .{});
                         }
@@ -296,11 +294,11 @@ pub fn runProgram(vm: *VirtualMachine, program: AST.Program) !void {
                 }
             },
             .use_stmt => |import_path| {
-                const final_import_path = if (std.fs.path.isAbsolute(import_path)) try vm.gpa.dupe(u8, import_path) else blk: {
+                const final_import_path = if (std.fs.path.isAbsolute(import_path)) try vm.runtime.gpa.dupe(u8, import_path) else blk: {
                     const dirname = std.fs.path.dirname(vm.runtime.main_file.path).?;
-                    break :blk try std.fs.path.resolve(vm.gpa, &.{ dirname, import_path });
+                    break :blk try std.fs.path.resolve(vm.runtime.gpa, &.{ dirname, import_path });
                 };
-                defer vm.gpa.free(final_import_path);
+                defer vm.runtime.gpa.free(final_import_path);
 
                 try vm.runtime.importer.import(final_import_path, vm.runtime);
             },
@@ -308,7 +306,7 @@ pub fn runProgram(vm: *VirtualMachine, program: AST.Program) !void {
                 const lhs = try objToValue(vm, ap.lhs.val);
                 const rhs = try objToValue(vm, ap.rhs.val);
                 const eq = Equation{ .lhs = lhs, .rhs = rhs };
-                try vm.runtime.equation_deque.pushBack(vm.runtime.allocator, eq);
+                try vm.pushEquation(eq);
 
                 if (Config.debug_printing.benchmark) {
                     const start = std.Io.Clock.awake.now(vm.runtime.io);
@@ -336,9 +334,9 @@ pub fn runProgram(vm: *VirtualMachine, program: AST.Program) !void {
                                 try diag.getPrettyMessage(
                                     vm.runtime.main_file.contents,
                                     vm.runtime.main_file.tokens,
-                                    vm.gpa,
+                                    vm.runtime.gpa,
                                 );
-                            defer vm.gpa.free(message);
+                            defer vm.runtime.gpa.free(message);
                             std.debug.print("{s}", .{message});
                             return error.CompilationError;
                         },

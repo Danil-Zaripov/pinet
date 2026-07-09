@@ -80,8 +80,8 @@ pub fn main(init: std.process.Init) !void {
         return err;
     };
     var runtime = try SharedRuntime.init(gpa, std.heap.page_allocator, main_file);
-    defer runtime.deinit(gpa);
-    var vm = try VM.init(gpa, &runtime);
+    defer runtime.deinit();
+    var vm = try VM.init(&runtime);
     defer vm.deinit();
     vm.runProgram(program) catch |err| {
         if (err == error.CompilationError) {

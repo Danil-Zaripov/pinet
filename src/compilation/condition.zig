@@ -6,6 +6,7 @@
 const std = @import("std");
 
 const Scope = @import("scope.zig");
+const AST = @import("ast");
 const Types = @import("shared_runtime").Types;
 
 const Agent = Types.Agent;
@@ -14,4 +15,31 @@ const Name = Types.Name;
 const Value = Types.Value;
 const Equation = Types.Equation;
 
-const Instruction = union(enum) {};
+const Register = struct {
+    const Id = usize;
+    const Value = union(enum) {
+        bool: bool,
+        special: Special,
+    };
+};
+
+const ConditionScope = struct {};
+
+const Op = struct {
+    const Binary = AST.Expression.BinaryExpr.Tag;
+    const Unary = AST.Expression.UnaryExpr.Tag;
+};
+
+const Instruction = struct {
+    /// lhs is used as the main argument in unary operations
+    lhs: Register.Id = undefined,
+    rhs: Register.Id = undefined,
+    result: Register.Id = undefined,
+    tag: Tag,
+
+    const Tag = union(enum) {
+        assert_id: Types.Agent.Id,
+        apply_bin: Op.Binary,
+        apply_un: Op.Unary,
+    };
+};
