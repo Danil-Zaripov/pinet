@@ -78,7 +78,22 @@ fn evalCondition(vm: *VM, lagent: *Agent, ragent: *Agent, instructions: []Condit
             .put_port => |port| {
                 const owner = if (port.owner == .lhs) lagent else ragent;
                 const value = if (port.idx) |idx| owner.ports[idx].? else Value{ .agent = owner };
-                const agent = value.getAgent() orelse return EvaluationError.BadSecondaryValue;
+                const agent = agent: {
+                    switch (value) {
+                        .name => |name| {
+                            // Will this work everywhere?
+                            const unwinded = name.unwind();
+                            if (unwinded) |agent| {
+                                name.unchain(vm.name_heap);
+                                break :agent agent;
+                            } else {
+                                return EvaluationError.BadSecondaryValue;
+                            }
+                        },
+                        .agent => |agent| break :agent agent,
+                        else => unreachable,
+                    }
+                };
 
                 registers[instr.result] = .{ .agent = agent };
             },
