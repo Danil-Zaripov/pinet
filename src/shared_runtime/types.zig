@@ -158,6 +158,14 @@ pub const Value = union(enum) {
 
     // specials are special in the fact that they can not interact directly
     special: Special,
+
+    pub fn getAgent(val: Value) ?*Agent {
+        return switch (val) {
+            .name => |name| name.unwind(),
+            .agent => |agent| agent,
+            else => unreachable,
+        };
+    }
 };
 
 pub const Equation = struct {

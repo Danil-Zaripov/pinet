@@ -13,7 +13,11 @@ const Lexer = AST.Lexer;
 const Runtime = @import("shared_runtime");
 const Types = Runtime.Types;
 const Memory = Runtime.Memory;
-const Instruction = @import("compilation").Instruction;
+
+const Compilation = @import("compilation");
+const Instruction = Compilation.Instruction;
+const Condition = Compilation.Condition;
+
 const Printing = @import("printing");
 
 const Config = @import("config");
@@ -33,6 +37,7 @@ const number_of_registers = 100;
 name_heap: Memory.Heap(Name),
 agent_heap: Memory.Heap(Agent),
 registers: [number_of_registers]Value,
+condition_registers: [number_of_registers]Condition.Register.CondValue,
 
 runtime: *Runtime,
 
@@ -86,13 +91,16 @@ fn heapDeinit(comptime T: type, heap: Memory.Heap(T), gpa: std.mem.Allocator) vo
 }
 
 pub fn init(runtime: *Runtime) !Self {
-    const default_heap_size = 1024;
+    const default_heap_size = 1024 * 1024 * 16;
 
     return .{
         .runtime = runtime,
         .agent_heap = try heapInit(Agent, default_heap_size, runtime.gpa),
         .name_heap = try heapInit(Name, default_heap_size, runtime.gpa),
+
+        // They are not meant to be used when undefiend by the design of compilation.
         .registers = @splat(undefined),
+        .condition_registers = @splat(undefined),
     };
 }
 

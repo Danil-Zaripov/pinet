@@ -1,9 +1,15 @@
 const std = @import("std");
+
 const AST = @import("ast");
 const Lexer = AST.Lexer;
+
 const Runtime = @import("shared_runtime");
 const Types = Runtime.Types;
-const Instruction = @import("compilation").Instruction;
+
+const Compilation = @import("compilation");
+const Instruction = Compilation.Instruction;
+const Condition = Compilation.Condition;
+
 const Builtin = @import("builtin.zig");
 const VM = @import("vm.zig");
 const Debug = @import("debug");
@@ -55,8 +61,6 @@ pub fn name_agent(vm: *VM, name: *Name, agent: *Agent) !void {
     }
 }
 
-const Condition = Instruction.CompiledCondition;
-
 const SimpleValue = union(enum) {
     bool: bool,
     special: Special,
@@ -67,73 +71,62 @@ const EvaluationError = error{
     WrongArgument,
 };
 
-fn evalCondition(vm: *const VM, lagent: *const Agent, ragent: *const Agent, condition: *Condition) EvaluationError!SimpleValue {
-    switch (condition.*) {
-        .atom => |atom| {
-            switch (atom) {
-                .special => |special| {
-                    return .{ .special = special };
-                },
-                .port => |port| {
-                    const a = if (port.owner == .lhs) lagent else ragent;
-                    // constCast !!!
-                    const node = if (port.idx) |port_idx| a.ports[port_idx].? else Value{ .agent = @constCast(a) };
+fn evalCondition(vm: *VM, lagent: *Agent, ragent: *Agent, instructions: []Condition.Instruction) !bool {
+    const registers = &vm.condition_registers;
+    for (instructions) |instr| {
+        switch (instr.tag) {
+            .put_port => |port| {
+                const owner = if (port.owner == .lhs) lagent else ragent;
+                const value = if (port.idx) |idx| owner.ports[idx].? else Value{ .agent = owner };
+                const agent = value.getAgent() orelse return EvaluationError.BadSecondaryValue;
 
-                    node_blk: switch (node) {
-                        .agent => |agent| {
-                            const number_id = Builtin.BuiltinNameMap.get(Builtin.number_builtin_ident).?;
-                            if (agent.id == number_id) {
-                                return .{ .special = agent.ports[0].?.special };
-                            } else {
-                                return EvaluationError.BadSecondaryValue;
-                            }
-                        },
-                        .name => |name| {
-                            if (name.port) |name_port| {
-                                continue :node_blk name_port;
-                            } else {
-                                return EvaluationError.BadSecondaryValue;
-                            }
-                        },
-                        else => unreachable,
+                registers[instr.result] = .{ .agent = agent };
+            },
+            .assert_id => |asserted_id| {
+                if (registers[instr.lhs] == .agent) {
+                    const agent = registers[instr.lhs].agent;
+                    if (agent.id != asserted_id) {
+                        return error.BadSecondaryValue;
                     }
-                },
-            }
-        },
-        .binary_op => |binary| {
-            const lhs = try evalCondition(vm, lagent, ragent, binary.lhs);
-            const rhs = try evalCondition(vm, lagent, ragent, binary.rhs);
-            if (lhs == .special and rhs == .special) {
-                switch (binary.op) {
-                    .eq => return SimpleValue{ .bool = Special.eq(lhs.special, rhs.special) },
-                    .less => return SimpleValue{ .bool = Special.less(lhs.special, rhs.special) },
-                    .leq => return SimpleValue{ .bool = Special.leq(lhs.special, rhs.special) },
-                    .greater => return SimpleValue{ .bool = Special.greater(lhs.special, rhs.special) },
-                    .geq => return SimpleValue{ .bool = Special.geq(lhs.special, rhs.special) },
-                    else => return EvaluationError.WrongArgument,
                 }
-            } else if (lhs == .bool and rhs == .bool) {
-                switch (binary.op) {
-                    .logic_or => return SimpleValue{ .bool = lhs.bool or rhs.bool },
-                    .logic_and => return SimpleValue{ .bool = lhs.bool and rhs.bool },
-                    else => return EvaluationError.WrongArgument,
+            },
+            .get_special => {
+                registers[instr.result] = Condition.Register.CondValue{ .special = registers[instr.lhs].agent.ports[0].?.special };
+            },
+            .put_constant => |special| {
+                registers[instr.result] = Condition.Register.CondValue{ .special = special };
+            },
+            .apply_bin => |op| {
+                const lhs = registers[instr.lhs];
+                const rhs = registers[instr.rhs];
+                if (lhs == .special and rhs == .special) {
+                    registers[instr.result] = .{ .bool = switch (op) {
+                        .eq => lhs.special.eq(rhs.special),
+                        .geq => lhs.special.geq(rhs.special),
+                        .leq => lhs.special.leq(rhs.special),
+                        .less => lhs.special.less(rhs.special),
+                        .greater => lhs.special.greater(rhs.special),
+                        else => return error.WrongArgument,
+                    } };
+                } else if (lhs == .bool and rhs == .bool) {
+                    registers[instr.result] = .{ .bool = switch (op) {
+                        .logic_and => lhs.bool and rhs.bool,
+                        .logic_or => lhs.bool and rhs.bool,
+                        else => return error.WrongArgument,
+                    } };
+                } else {
+                    return error.WrongArgument;
                 }
-            } else {
-                return EvaluationError.WrongArgument;
-            }
-        },
-        .unary_op => |unary| {
-            const item = try evalCondition(vm, lagent, ragent, unary.item);
-            if (item.bool) {
-                switch (unary.op) {
-                    .not => return SimpleValue{ .bool = !item.bool },
+            },
+            .apply_un => unreachable,
+            .get_result => {
+                if (registers[instr.result] == .bool) {
+                    return registers[instr.result].bool;
                 }
-            } else {
-                return EvaluationError.WrongArgument;
-            }
-        },
+                return false;
+            },
+        }
     }
-
     unreachable;
 }
 
@@ -201,15 +194,16 @@ pub fn agent_agent(vm: *VM, _lagent: *Agent, _ragent: *Agent) !void {
             for (conditioned_rules) |conditioned| {
                 if (conditioned.condition) |condition| {
                     const evaluated = evalCondition(vm, lagent, ragent, condition) catch |err| errblk: {
+                        std.debug.print("Caught an error {s}!\n", .{@errorName(err)});
                         switch (err) {
-                            EvaluationError.BadSecondaryValue => break :errblk SimpleValue{ .bool = false },
+                            EvaluationError.BadSecondaryValue => break :errblk false,
                             // There probably should be some other error handling in case of bad arguments
                             // but since many things can go badly, we can simply ignore it?
                             // TODO: research into more constraining conditions
-                            EvaluationError.WrongArgument => break :errblk SimpleValue{ .bool = false },
+                            EvaluationError.WrongArgument => break :errblk false,
                         }
                     };
-                    if (evaluated == .bool and evaluated.bool) {
+                    if (evaluated) {
                         try VM.execInstructions(vm, conditioned.instructions, lagent, ragent, wildcarded);
                         return;
                     }

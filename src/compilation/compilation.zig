@@ -1,6 +1,7 @@
 const std = @import("std");
 
 pub const Instruction = @import("instruction.zig");
+pub const Condition = @import("condition.zig");
 
 const Types = @import("shared_runtime").Types;
 

@@ -31,9 +31,9 @@ pub const Port = struct {
     };
 };
 
-const Register = struct {
-    const Id = usize;
-    const CondValue = union(enum) {
+pub const Register = struct {
+    pub const Id = usize;
+    pub const CondValue = union(enum) {
         bool: bool,
         special: Special,
         agent: *Agent,
