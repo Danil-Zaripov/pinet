@@ -21,6 +21,7 @@ const Config = @import("config");
 const Agent = Types.Agent;
 const Value = Types.Value;
 const Name = Types.Name;
+const Special = Types.Special;
 const Equation = Types.Equation;
 
 const VirtualMachine = @This();
@@ -100,15 +101,8 @@ pub fn deinit(self: *Self) void {
     heapDeinit(Name, self.name_heap, self.runtime.gpa);
 }
 
-pub fn getNumberType(str: []const u8) !Types.Special {
-    return if (std.mem.findScalar(u8, str, '.')) |_|
-        .{ .float = try std.fmt.parseFloat(f32, str) }
-    else
-        .{ .integer = try std.fmt.parseInt(i32, str, 10) };
-}
-
 pub fn objToValueNumber(vm: *VirtualMachine, num: AST.Object) !Value {
-    const numtype = try getNumberType(num.name);
+    const numtype = try Special.parse(num.name);
     const agent_id = Builtin.BuiltinNameMap.get(Builtin.number_builtin_ident).?;
     var agent = try vm.createAgent(agent_id);
 

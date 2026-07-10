@@ -34,12 +34,13 @@ pub fn associate(self: *Scope, name: []const u8, tslice: TokenSlice) !*NameInfo 
     }
 }
 
-pub fn init(allocator: std.mem.Allocator) Scope {
+pub fn init(gpa: std.mem.Allocator) Scope {
     return .{
         .free_idx = 0,
-        .map = std.StringHashMap(NameInfo).init(allocator),
+        .map = std.StringHashMap(NameInfo).init(gpa),
     };
 }
+
 pub fn deinit(self: *Scope) void {
     self.map.deinit();
 }

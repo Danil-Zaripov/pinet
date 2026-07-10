@@ -87,6 +87,7 @@ pub fn build(b: *std.Build) void {
 
     mod_shared_runtime.addImport("vm", mod_vm);
     mod_shared_runtime.addImport("compilation", mod_compilation);
+    mod_compilation.addImport("vm", mod_vm);
     mod_printing.addImport("shared_runtime", mod_shared_runtime);
     mod_ast.addImport("printing", mod_printing);
 

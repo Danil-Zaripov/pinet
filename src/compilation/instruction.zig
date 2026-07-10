@@ -16,19 +16,7 @@ const Name = Types.Name;
 const Value = Types.Value;
 const Equation = Types.Equation;
 
-pub const Port = struct {
-    owner: Owner,
-
-    // Null means the owner is a name in case of a wildcard rule
-    idx: ?Idx,
-
-    pub const Idx = usize;
-
-    pub const Owner = enum {
-        rhs,
-        lhs,
-    };
-};
+pub const Port = Condition.Port;
 
 pub const AgentsKey = struct { lhs: Agent.Id, rhs: Agent.Id };
 
@@ -155,34 +143,8 @@ pub const CompiledRule = struct {
 };
 
 pub const ConditionedRule = struct {
-    condition: ?*CompiledCondition,
+    condition: ?[]Condition.Instruction,
     instructions: CompiledPairs,
-};
-
-pub const CompiledCondition = union(enum) {
-    binary_op: Binary,
-    unary_op: Unary,
-    atom: Atom,
-
-    pub const Atom = union(enum) {
-        special: Special,
-        port: Port,
-    };
-
-    pub const Binary = struct {
-        lhs: *CompiledCondition,
-        rhs: *CompiledCondition,
-        op: Op,
-
-        pub const Op = AST.Expression.BinaryExpr.Tag;
-    };
-
-    pub const Unary = struct {
-        item: *CompiledCondition,
-        op: Op,
-
-        pub const Op = AST.Expression.UnaryExpr.Tag;
-    };
 };
 
 const CompiledPairs = []Instruction;
@@ -379,48 +341,6 @@ pub fn compilePairs(
     return try toArenaOwnedSlice(Instruction, &list, runtime.gpa, runtime.arena);
 }
 
-pub fn compileCondition(
-    runtime: *Runtime,
-    port_info: *const std.StringHashMap(Port),
-    condition: *AST.Node(AST.Expression),
-    diag: *CompilationError,
-) !*CompiledCondition {
-    const compiled = try runtime.arena.create(CompiledCondition);
-    switch (condition.val) {
-        .atom => |atom_node| {
-            const atom = atom_node.val;
-            if (atom.portlist) |ports| {
-                if (atom.isNumber()) {
-                    const num = ports[0].val.name;
-                    compiled.* = .{ .atom = .{ .special = try Compilation.getNumberType(num) } };
-                }
-            } else {
-                if (port_info.get(atom.name)) |port_idx| {
-                    compiled.* = .{ .atom = .{ .port = port_idx } };
-                } else {
-                    diag.tag = .{ .unknown_name = condition.tslice };
-                    return HandledError.UnknownName;
-                }
-            }
-        },
-        .binary_op => |binary| {
-            compiled.* = .{ .binary_op = .{
-                .op = binary.tag,
-                .lhs = try compileCondition(runtime, port_info, binary.lhs, diag),
-                .rhs = try compileCondition(runtime, port_info, binary.rhs, diag),
-            } };
-        },
-        .unary_op => |unary| {
-            compiled.* = .{ .unary_op = .{
-                .op = unary.tag,
-                .item = try compileCondition(runtime, port_info, unary.item, diag),
-            } };
-        },
-    }
-
-    return compiled;
-}
-
 pub fn compileWildcard(
     runtime: *Runtime,
     agent: AST.Node(AST.Object),
@@ -448,7 +368,7 @@ pub fn compileWildcard(
     for (rule_exprs) |rule_expr| {
         const instructions = try compilePairs(runtime, agent, name, rule_expr.pairs, diag);
         try lst.append(runtime.gpa, .{
-            .condition = if (rule_expr.expr) |condition| try compileCondition(runtime, &port_info, condition, diag) else null,
+            .condition = if (rule_expr.expr) |condition| try Condition.compile(runtime, &port_info, condition) else null,
             .instructions = instructions,
         });
     }
@@ -494,7 +414,7 @@ pub fn compileRule(runtime: *Runtime, rule: AST.Rule, diag: *CompilationError) !
     for (rule.rule_exprs) |rule_expr| {
         const instructions = try compilePairs(runtime, rule.lhs, rule.rhs, rule_expr.pairs, diag);
         try lst.append(runtime.gpa, .{
-            .condition = if (rule_expr.expr) |condition| try compileCondition(runtime, &port_info, condition, diag) else null,
+            .condition = if (rule_expr.expr) |condition| try Condition.compile(runtime, &port_info, condition) else null,
             .instructions = instructions,
         });
     }
