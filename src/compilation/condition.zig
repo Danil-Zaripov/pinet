@@ -10,6 +10,9 @@ const AST = @import("ast");
 const Runtime = @import("shared_runtime");
 const Types = Runtime.Types;
 const Builtin = @import("vm").Builtin;
+const Compilation = @import("compilation.zig");
+const Diagnostic = Compilation.Diagnostic;
+const HandledError = Diagnostic.HandledError;
 
 const Agent = Types.Agent;
 const Special = Types.Special;
@@ -146,13 +149,15 @@ pub const Context = struct {
     instrs_list: std.ArrayList(Instruction),
     scope: ConditionScope,
     port_info: *const std.StringHashMap(Port),
+    diag: *Diagnostic,
 
-    pub fn init(runtime: *Runtime, port_info: *const std.StringHashMap(Port)) !Context {
+    pub fn init(runtime: *Runtime, port_info: *const std.StringHashMap(Port), diag: *Diagnostic) !Context {
         return .{
             .runtime = runtime,
             .instrs_list = .empty,
             .scope = try .init(runtime.gpa),
             .port_info = port_info,
+            .diag = diag,
         };
     }
 
@@ -188,6 +193,9 @@ pub fn getPortReg(ctx: *Context, obj: AST.Node(AST.Object)) !CompileResult {
             }
         } };
     } else {
+        ctx.diag.* = .{
+            .tag = .{ .unknown_name = obj.tslice },
+        };
         return error.UnknownName;
     }
 }
@@ -284,8 +292,9 @@ pub fn compile(
     runtime: *Runtime,
     port_info: *const std.StringHashMap(Port),
     expr_node: *const AST.Node(AST.Expression),
+    diag: *Compilation.Diagnostic,
 ) ![]Instruction {
-    var context: Context = try .init(runtime, port_info);
+    var context: Context = try .init(runtime, port_info, diag);
     errdefer context.deinit();
 
     const res = try compileCondition(&context, expr_node);

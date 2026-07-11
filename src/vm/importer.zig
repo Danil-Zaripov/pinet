@@ -5,7 +5,10 @@ const Runtime = @import("shared_runtime");
 const AST = @import("ast");
 const Lexer = AST.Lexer;
 const Parser = AST.Parser;
-const Instruction = @import("compilation").Instruction;
+
+const Compilation = @import("compilation");
+const Instruction = Compilation.Instruction;
+
 const Config = @import("config");
 
 const Self = @This();
@@ -65,9 +68,9 @@ pub fn import(self: *Self, path: []const u8, runtime: *Runtime) !void {
     for (program.statements) |statement| {
         switch (statement.val) {
             .rule => |rule| {
-                var diag = Instruction.CompilationError{};
+                var diag = Compilation.Diagnostic{};
                 const compiled_rule = Instruction.compileRule(runtime, rule, &diag) catch |err| {
-                    const HandledError = Instruction.HandledError;
+                    const HandledError = Compilation.Diagnostic.HandledError;
                     switch (err) {
                         HandledError.AgentInArgument, HandledError.UnknownName, HandledError.NameUsedTwice => {
                             const message =

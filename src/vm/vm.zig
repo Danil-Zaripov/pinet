@@ -91,7 +91,7 @@ fn heapDeinit(comptime T: type, heap: Memory.Heap(T), gpa: std.mem.Allocator) vo
 }
 
 pub fn init(runtime: *Runtime) !Self {
-    const default_heap_size = 1024 * 1024 * 16;
+    const default_heap_size = 1024;
 
     return .{
         .runtime = runtime,
@@ -327,9 +327,9 @@ pub fn runProgram(vm: *VirtualMachine, program: AST.Program) !void {
                 }
             },
             .rule => |rule| {
-                var diag = Instruction.CompilationError{};
+                var diag = Compilation.Diagnostic{};
                 const compiled_rule = Instruction.compileRule(vm.runtime, rule, &diag) catch |err| {
-                    const HandledError = Instruction.HandledError;
+                    const HandledError = Compilation.Diagnostic.HandledError;
                     switch (err) {
                         HandledError.AgentInArgument, HandledError.UnknownName, HandledError.NameUsedTwice => {
                             const message =
