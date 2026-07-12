@@ -143,7 +143,8 @@ pub const Diagnostic = struct {
         allocator: std.mem.Allocator,
         padding: usize,
     ) ![]const u8 {
-        const markup_line = try allocator.alloc(u8, tokens[connectedSlices[connectedSlices.len - 1].end].loc.end.ch + padding);
+const end = tokens[connectedSlices[connectedSlices.len - 1].end].loc.end.ch;
+const markup_line = try allocator.alloc(u8, end + padding);
         @memset(markup_line, ' ');
         for (connectedSlices) |slice| {
             markup_line[tokens[slice.start].loc.start.ch + padding] = '^';
