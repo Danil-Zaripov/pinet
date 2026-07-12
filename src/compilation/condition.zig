@@ -17,7 +17,7 @@ const Equation = Types.Equation;
 
 const Register = struct {
     const Id = usize;
-    const Value = union(enum) {
+    const CondValue = union(enum) {
         bool: bool,
         special: Special,
     };

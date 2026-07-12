@@ -142,7 +142,7 @@ pub fn debugPrintInstruction(runtime: *const Runtime, conditioned_rules: []Condi
 
 /// Assuming gpa owns the std.ArrayList(T), converts to owned list,
 /// dupes the list using arena and returns it.
-fn passToArena(comptime T: type, lst: *std.ArrayList(T), gpa: std.mem.Allocator, arena: std.mem.Allocator) ![]T {
+fn toArenaOwnedSlice(comptime T: type, lst: *std.ArrayList(T), gpa: std.mem.Allocator, arena: std.mem.Allocator) ![]T {
     const owned = try lst.toOwnedSlice(gpa);
     defer gpa.free(owned);
     const duped = try arena.dupe(T, owned);
@@ -211,7 +211,7 @@ pub fn compileNumber(
     try list.append(runtime.gpa, mk_special(special, special_reg));
     try list.append(runtime.gpa, put_into_port(0, special_reg, reg));
 
-    return .{ .reg = reg, .instrs = try passToArena(Instruction, &list, runtime.gpa, runtime.arena) };
+    return .{ .reg = reg, .instrs = try toArenaOwnedSlice(Instruction, &list, runtime.gpa, runtime.arena) };
 }
 
 pub fn compileName(
@@ -241,7 +241,7 @@ pub fn compileName(
         try list.append(runtime.gpa, Instruction.mk_name(name_info.location));
     }
 
-    return .{ .name_info = name_info, .instrs = try passToArena(Instruction, &list, runtime.gpa, runtime.arena) };
+    return .{ .name_info = name_info, .instrs = try toArenaOwnedSlice(Instruction, &list, runtime.gpa, runtime.arena) };
 }
 
 pub fn compileAgent(
@@ -276,7 +276,7 @@ pub fn compileAgent(
         }
     }
 
-    return .{ .reg = reg, .instrs = try passToArena(Instruction, &list, runtime.gpa, runtime.arena) };
+    return .{ .reg = reg, .instrs = try toArenaOwnedSlice(Instruction, &list, runtime.gpa, runtime.arena) };
 }
 
 pub fn compileTerm(runtime: *Runtime, obj: AST.Node(AST.Object), scope: *Scope, diag: *CompilationError) !CompiledTerm {
@@ -376,7 +376,7 @@ pub fn compilePairs(
         try list.append(runtime.gpa, Instruction.push(compiledLhs.reg, compiledRhs.reg));
     }
 
-    return try passToArena(Instruction, &list, runtime.gpa, runtime.arena);
+    return try toArenaOwnedSlice(Instruction, &list, runtime.gpa, runtime.arena);
 }
 
 pub fn compileCondition(
@@ -455,7 +455,7 @@ pub fn compileWildcard(
 
     return CompiledRule{
         .{ .wildcard = agent_id },
-        try passToArena(ConditionedRule, &lst, runtime.gpa, runtime.arena),
+        try toArenaOwnedSlice(ConditionedRule, &lst, runtime.gpa, runtime.arena),
     };
 }
 
@@ -501,7 +501,7 @@ pub fn compileRule(runtime: *Runtime, rule: AST.Rule, diag: *CompilationError) !
 
     return CompiledRule{
         .{ .agents = .{ .lhs = lhs_id, .rhs = rhs_id } },
-        try passToArena(ConditionedRule, &lst, runtime.gpa, runtime.arena),
+        try toArenaOwnedSlice(ConditionedRule, &lst, runtime.gpa, runtime.arena),
     };
 }
 

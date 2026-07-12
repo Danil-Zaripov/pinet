@@ -222,7 +222,7 @@ fn parseObjList(self: *Parser) error{ NoSpaceLeft, OutOfMemory, ErrorDuringParsi
         }
     }
 
-    return passToArena(AST.Node(AST.Object), &list, self.intermediate_list_allocator, self.arena);
+    return toArenaOwnedSlice(AST.Node(AST.Object), &list, self.intermediate_list_allocator, self.arena);
 }
 
 fn parseConsList(self: *Parser) error{ NoSpaceLeft, OutOfMemory, ErrorDuringParsing, TupleTooBig }!AST.Node(AST.Object) {
@@ -415,7 +415,7 @@ fn parsePairs(self: *Parser) ![]AST.Node(AST.ActivePair) {
         },
     }
 
-    return try passToArena(AST.Node(AST.ActivePair), &list, self.intermediate_list_allocator, self.arena);
+    return try toArenaOwnedSlice(AST.Node(AST.ActivePair), &list, self.intermediate_list_allocator, self.arena);
 }
 
 pub fn parseRule(self: *Parser, lhs: AST.Node(AST.Object)) !AST.Rule {
@@ -462,7 +462,7 @@ pub fn parseRule(self: *Parser, lhs: AST.Node(AST.Object)) !AST.Rule {
         },
     }
 
-    ret.rule_exprs = try passToArena(AST.RuleExpression, &list, self.intermediate_list_allocator, self.arena);
+    ret.rule_exprs = try toArenaOwnedSlice(AST.RuleExpression, &list, self.intermediate_list_allocator, self.arena);
     return ret;
 }
 
@@ -542,7 +542,7 @@ pub fn parseProgram(self: *Parser) !AST.Program {
     }
 
     return .{
-        .statements = try passToArena(
+        .statements = try toArenaOwnedSlice(
             AST.Node(AST.Statement),
             &list,
             self.intermediate_list_allocator,
@@ -566,12 +566,12 @@ fn parseNameList(self: *Parser) ![]AST.Name {
         try list.append(self.intermediate_list_allocator, .{ .val = t.content.? });
     }
 
-    return try passToArena(AST.Name, &list, self.intermediate_list_allocator, self.arena);
+    return try toArenaOwnedSlice(AST.Name, &list, self.intermediate_list_allocator, self.arena);
 }
 
 /// Assuming gpa owns the std.ArrayList(T), converts to owned list,
 /// dupes the list using arena and returns it.
-fn passToArena(comptime T: type, lst: *std.ArrayList(T), gpa: std.mem.Allocator, arena: std.mem.Allocator) ![]T {
+fn toArenaOwnedSlice(comptime T: type, lst: *std.ArrayList(T), gpa: std.mem.Allocator, arena: std.mem.Allocator) ![]T {
     const owned = try lst.toOwnedSlice(gpa);
     defer gpa.free(owned);
     const duped = try arena.dupe(T, owned);
