@@ -143,8 +143,8 @@ pub const Diagnostic = struct {
         allocator: std.mem.Allocator,
         padding: usize,
     ) ![]const u8 {
-const end = tokens[connectedSlices[connectedSlices.len - 1].end].loc.end.ch;
-const markup_line = try allocator.alloc(u8, end + padding);
+        const end = tokens[connectedSlices[connectedSlices.len - 1].end].loc.end.ch;
+        const markup_line = try allocator.alloc(u8, end + padding);
         @memset(markup_line, ' ');
         for (connectedSlices) |slice| {
             markup_line[tokens[slice.start].loc.start.ch + padding] = '^';
@@ -194,7 +194,6 @@ const markup_line = try allocator.alloc(u8, end + padding);
 
             .name_used_twice,
             => |names| .{ tokens[names.first.start], tokens[names.second.end], &.{ names.first, names.second } },
-
         };
 
         if (start_token.loc.start.line == end_token.loc.end.line) {
