@@ -187,8 +187,14 @@ const markup_line = try allocator.alloc(u8, end + padding);
         var lines = try Printing.Lines.init(gpa, source_file);
         defer lines.deinit();
         const start_token, const end_token, const connectedSlices: []const TokenSlice = switch (self.tag) {
-            .unknown_name, .agent_in_argument, .name_used_once => |tslice| .{ tokens[tslice.start], tokens[tslice.end], &.{tslice} },
-            .name_used_twice => |names| .{ tokens[names.first.start], tokens[names.second.end], &.{ names.first, names.second } },
+            .unknown_name,
+            .agent_in_argument,
+            .name_used_once,
+            => |tslice| .{ tokens[tslice.start], tokens[tslice.end], &.{tslice} },
+
+            .name_used_twice,
+            => |names| .{ tokens[names.first.start], tokens[names.second.end], &.{ names.first, names.second } },
+
         };
 
         if (start_token.loc.start.line == end_token.loc.end.line) {
