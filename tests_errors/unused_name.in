@@ -1,0 +1,6 @@
+
+// Here are two names that are unused: y and z,
+// but only one gets printed.
+A(x) >< B(y) =>
+    Eraser() ~ x,
+    Eraser() ~ z;

@@ -4,6 +4,8 @@ const std = @import("std");
 const AST = @import("ast");
 const TokenSlice = AST.TokenSlice;
 
+const Diagnostic = @import("compilation.zig").Diagnostic;
+
 const Scope = @This();
 
 pub const RegisterId = usize;
@@ -39,6 +41,18 @@ pub fn init(gpa: std.mem.Allocator) Scope {
         .free_idx = 0,
         .map = std.StringHashMap(NameInfo).init(gpa),
     };
+}
+
+const HandledError = Diagnostic.HandledError;
+
+pub fn checkNameUsage(self: *Scope, diag: *Diagnostic) HandledError!void {
+    var iter = self.map.valueIterator();
+    while (iter.next()) |val| {
+        if (!val.used) {
+            diag.* = .{ .tag = .{ .name_used_once = val.token_slice } };
+            return HandledError.NameUsedOnce;
+        }
+    }
 }
 
 pub fn deinit(self: *Scope) void {

@@ -341,6 +341,7 @@ pub fn compilePairs(
         try list.append(runtime.gpa, Instruction.push(compiledLhs.reg, compiledRhs.reg));
     }
 
+    try scope.checkNameUsage(diag);
     return try toArenaOwnedSlice(Instruction, &list, runtime.gpa, runtime.arena);
 }
 

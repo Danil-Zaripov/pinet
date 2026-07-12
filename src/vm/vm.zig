@@ -321,22 +321,21 @@ pub fn runProgram(vm: *VirtualMachine, program: AST.Program) !void {
                 }
             },
             .rule => |rule| {
-                var diag = Compilation.Diagnostic{};
+                const Diagnostic = Compilation.Diagnostic;
+                var diag: Diagnostic = .{};
                 const compiled_rule = Instruction.compileRule(vm.runtime, rule, &diag) catch |err| {
-                    const HandledError = Compilation.Diagnostic.HandledError;
-                    switch (err) {
-                        HandledError.AgentInArgument, HandledError.UnknownName, HandledError.NameUsedTwice => {
-                            const message =
-                                try diag.getPrettyMessage(
-                                    vm.runtime.main_file.contents,
-                                    vm.runtime.main_file.tokens,
-                                    vm.runtime.gpa,
-                                );
-                            defer vm.runtime.gpa.free(message);
-                            std.debug.print("{s}", .{message});
-                            return error.CompilationError;
-                        },
-                        else => return err,
+                    if (Diagnostic.isHandledError(err)) {
+                        const message =
+                            try diag.getPrettyMessage(
+                                vm.runtime.main_file.contents,
+                                vm.runtime.main_file.tokens,
+                                vm.runtime.gpa,
+                            );
+                        defer vm.runtime.gpa.free(message);
+                        std.debug.print("{s}", .{message});
+                        return error.CompilationError;
+                    } else {
+                        return err;
                     }
                 };
                 if (Config.debug_printing.print_compiled_instructions) {

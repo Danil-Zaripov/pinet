@@ -23,8 +23,6 @@ pub fn getNumberType(str: []const u8) !Types.Special {
     }
 }
 
-pub const HandledError = Diagnostic.HandledError;
-
 const TokenSlice = AST.TokenSlice;
 
 pub const Diagnostic = struct {
@@ -37,13 +35,26 @@ pub const Diagnostic = struct {
         },
         unknown_name: TokenSlice,
         agent_in_argument: TokenSlice,
+        name_used_once: TokenSlice,
     };
 
     pub const HandledError = error{
         AgentInArgument,
         UnknownName,
         NameUsedTwice,
+        NameUsedOnce,
     };
+
+    pub fn isHandledError(err: anyerror) bool {
+        return switch (err) {
+            HandledError.AgentInArgument,
+            HandledError.UnknownName,
+            HandledError.NameUsedTwice,
+            HandledError.NameUsedOnce,
+            => true,
+            else => false,
+        };
+    }
 
     const Printing = @import("printing");
     const Token = AST.Lexer.Token;
@@ -139,6 +150,7 @@ pub const Diagnostic = struct {
             .name_used_twice => "Name used more than twice",
             .unknown_name => "Unknown name",
             .agent_in_argument => "Agent in the argument list",
+            .name_used_once => "Unused name: name has only been used once",
         };
     }
 
@@ -150,6 +162,8 @@ pub const Diagnostic = struct {
             \\What you're probably trying to do is nested pattern matching.
             \\Unfortunately it is either unimplemented or will never be implemented.
             \\Consider using real interaction nets nested pattern matching using additional helper agents.
+            ,
+            .name_used_once => "Check for typos. Names should be used exactly twice in one scope.",
         };
     }
 
@@ -163,7 +177,7 @@ pub const Diagnostic = struct {
         var lines = try Printing.Lines.init(gpa, source_file);
         defer lines.deinit();
         const start_token, const end_token, const connectedSlices: []const TokenSlice = switch (self.tag) {
-            .unknown_name, .agent_in_argument => |tslice| .{ tokens[tslice.start], tokens[tslice.end], &.{tslice} },
+            .unknown_name, .agent_in_argument, .name_used_once => |tslice| .{ tokens[tslice.start], tokens[tslice.end], &.{tslice} },
             .name_used_twice => |names| .{ tokens[names.first.start], tokens[names.second.end], &.{ names.first, names.second } },
         };
 

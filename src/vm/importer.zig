@@ -68,22 +68,21 @@ pub fn import(self: *Self, path: []const u8, runtime: *Runtime) !void {
     for (program.statements) |statement| {
         switch (statement.val) {
             .rule => |rule| {
-                var diag = Compilation.Diagnostic{};
+                const Diagnostic = Compilation.Diagnostic;
+                var diag: Diagnostic = .{};
                 const compiled_rule = Instruction.compileRule(runtime, rule, &diag) catch |err| {
-                    const HandledError = Compilation.Diagnostic.HandledError;
-                    switch (err) {
-                        HandledError.AgentInArgument, HandledError.UnknownName, HandledError.NameUsedTwice => {
-                            const message =
-                                try diag.getPrettyMessage(
-                                    file.contents,
-                                    file.tokens,
-                                    gpa,
-                                );
-                            defer gpa.free(message);
-                            std.debug.print("Imported file {s}\n{s}", .{ file.path, message });
-                            return error.CompilationError;
-                        },
-                        else => return err,
+                    if (Diagnostic.isHandledError(err)) {
+                        const message =
+                            try diag.getPrettyMessage(
+                                file.contents,
+                                file.tokens,
+                                gpa,
+                            );
+                        defer gpa.free(message);
+                        std.debug.print("Imported file {s}\n{s}", .{ file.path, message });
+                        return error.CompilationError;
+                    } else {
+                        return err;
                     }
                 };
                 if (Config.debug_printing.print_compiled_instructions) {

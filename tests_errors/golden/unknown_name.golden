@@ -1,5 +1,5 @@
 Rule compilation error on line 3 index 7: Unknown name
-| x < y_unknown => Eraser() ~ (a, b);
+| x < y_unknown => Eraser() ~ (a, b, x);
       ^~~~~~~~~
 
 Hint: Check for typos.
