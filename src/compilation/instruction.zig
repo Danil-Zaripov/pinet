@@ -131,14 +131,7 @@ pub fn debugPrintInstruction(runtime: *const Runtime, conditioned_rules: []Condi
     }
 }
 
-/// Assuming gpa owns the std.ArrayList(T), converts to owned list,
-/// dupes the list using arena and returns it.
-fn toArenaOwnedSlice(comptime T: type, lst: *std.ArrayList(T), gpa: std.mem.Allocator, arena: std.mem.Allocator) ![]T {
-    const owned = try lst.toOwnedSlice(gpa);
-    defer gpa.free(owned);
-    const duped = try arena.dupe(T, owned);
-    return duped;
-}
+const toArenaOwnedSlice = Compilation.toArenaOwnedSlice;
 
 pub const CompiledRule = struct {
     CompiledLhs,

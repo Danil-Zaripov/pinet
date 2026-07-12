@@ -23,6 +23,15 @@ pub fn getNumberType(str: []const u8) !Types.Special {
     }
 }
 
+/// Assuming gpa owns the std.ArrayList(T), converts to owned list,
+/// dupes the list using arena and returns it.
+pub fn toArenaOwnedSlice(comptime T: type, lst: *std.ArrayList(T), gpa: std.mem.Allocator, arena: std.mem.Allocator) ![]T {
+    const owned = try lst.toOwnedSlice(gpa);
+    defer gpa.free(owned);
+    const duped = try arena.dupe(T, owned);
+    return duped;
+}
+
 const TokenSlice = AST.TokenSlice;
 
 pub const Diagnostic = struct {

@@ -167,7 +167,7 @@ pub const Context = struct {
 
     pub fn deinitAndGetInstrs(self: *Context) ![]Instruction {
         self.scope.deinit();
-        return try passToArena(Instruction, &self.instrs_list, self.runtime.gpa, self.runtime.arena);
+        return try toArenaOwnedSlice(Instruction, &self.instrs_list, self.runtime.gpa, self.runtime.arena);
     }
 
     /// Use in case of an error.
@@ -303,11 +303,4 @@ pub fn compile(
     return try context.deinitAndGetInstrs();
 }
 
-/// Assuming gpa owns the std.ArrayList(T), converts to owned list,
-/// dupes the list using arena and returns it.
-fn passToArena(comptime T: type, lst: *std.ArrayList(T), gpa: std.mem.Allocator, arena: std.mem.Allocator) ![]T {
-    const owned = try lst.toOwnedSlice(gpa);
-    defer gpa.free(owned);
-    const duped = try arena.dupe(T, owned);
-    return duped;
-}
+const toArenaOwnedSlice = Compilation.toArenaOwnedSlice;
