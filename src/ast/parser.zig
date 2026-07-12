@@ -221,10 +221,8 @@ fn parseObjList(self: *Parser) error{ NoSpaceLeft, OutOfMemory, ErrorDuringParsi
             },
         }
     }
-    const owned = try list.toOwnedSlice(self.intermediate_list_allocator);
-    defer self.intermediate_list_allocator.free(owned);
-    const result = try self.arena.dupe(AST.Node(AST.Object), owned);
-    return result;
+
+    return toArenaOwnedSlice(AST.Node(AST.Object), &list, self.intermediate_list_allocator, self.arena);
 }
 
 fn parseConsList(self: *Parser) error{ NoSpaceLeft, OutOfMemory, ErrorDuringParsing, TupleTooBig }!AST.Node(AST.Object) {
@@ -416,10 +414,8 @@ fn parsePairs(self: *Parser) ![]AST.Node(AST.ActivePair) {
             return Error.ErrorDuringParsing;
         },
     }
-    const owned = try list.toOwnedSlice(self.intermediate_list_allocator);
-    defer self.intermediate_list_allocator.free(owned);
-    const result = try self.arena.dupe(AST.Node(AST.ActivePair), owned);
-    return result;
+
+    return try toArenaOwnedSlice(AST.Node(AST.ActivePair), &list, self.intermediate_list_allocator, self.arena);
 }
 
 pub fn parseRule(self: *Parser, lhs: AST.Node(AST.Object)) !AST.Rule {
@@ -465,10 +461,8 @@ pub fn parseRule(self: *Parser, lhs: AST.Node(AST.Object)) !AST.Rule {
             return Error.ErrorDuringParsing;
         },
     }
-    const owned = try list.toOwnedSlice(self.intermediate_list_allocator);
-    defer self.intermediate_list_allocator.free(owned);
-    const result = try self.arena.dupe(AST.RuleExpression, owned);
-    ret.rule_exprs = result;
+
+    ret.rule_exprs = try toArenaOwnedSlice(AST.RuleExpression, &list, self.intermediate_list_allocator, self.arena);
     return ret;
 }
 
@@ -546,10 +540,15 @@ pub fn parseProgram(self: *Parser) !AST.Program {
             try list.append(self.intermediate_list_allocator, stmt);
         }
     }
-    const owned = try list.toOwnedSlice(self.intermediate_list_allocator);
-    defer self.intermediate_list_allocator.free(owned);
-    const result = try self.arena.dupe(AST.Node(AST.Statement), owned);
-    return .{ .statements = result };
+
+    return .{
+        .statements = try toArenaOwnedSlice(
+            AST.Node(AST.Statement),
+            &list,
+            self.intermediate_list_allocator,
+            self.arena,
+        ),
+    };
 }
 
 fn parseNameList(self: *Parser) ![]AST.Name {
@@ -566,10 +565,17 @@ fn parseNameList(self: *Parser) ![]AST.Name {
         const t = self.advance();
         try list.append(self.intermediate_list_allocator, .{ .val = t.content.? });
     }
-    const owned = try list.toOwnedSlice(self.intermediate_list_allocator);
-    defer self.intermediate_list_allocator.free(owned);
-    const result = try self.arena.dupe(AST.Name, owned);
-    return result;
+
+    return try toArenaOwnedSlice(AST.Name, &list, self.intermediate_list_allocator, self.arena);
+}
+
+/// Assuming gpa owns the std.ArrayList(T), converts to owned list,
+/// dupes the list using arena and returns it.
+fn toArenaOwnedSlice(comptime T: type, lst: *std.ArrayList(T), gpa: std.mem.Allocator, arena: std.mem.Allocator) ![]T {
+    const owned = try lst.toOwnedSlice(gpa);
+    defer gpa.free(owned);
+    const duped = try arena.dupe(T, owned);
+    return duped;
 }
 
 test "rule stmt" {
