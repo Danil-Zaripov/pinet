@@ -47,7 +47,9 @@ pub fn name_name(vm: *VM, lname: *Name, rname: *Name) !void {
 }
 
 pub fn name_agent(vm: *VM, name: *Name, agent: *Agent) !void {
-    Debug.log(.print_interactions, "{s} - name interaction\n", .{vm.runtime.agent_id_map.findKey(agent.id).?});
+    if (Config.debug_printing.print_interactions) {
+        std.debug.print("{s} - name interaction\n", .{vm.runtime.agent_id_map.findKey(agent.id).?});
+    }
 
     if (name.port) |port| {
         defer vm.name_heap.freeOne(name);
@@ -149,10 +151,12 @@ pub fn agent_agent(vm: *VM, _lagent: *Agent, _ragent: *Agent) !void {
     var lagent = _lagent;
     var ragent = _ragent;
 
-    Debug.log(.print_interactions, "{s} - {s} interaction\n", .{
-        vm.runtime.agent_id_map.findKey(lagent.id).?,
-        vm.runtime.agent_id_map.findKey(ragent.id).?,
-    });
+    if (Config.debug_printing.print_interactions) {
+        std.debug.print("{s} - {s}\n", .{
+            vm.runtime.agent_id_map.findKey(lagent.id),
+            vm.runtime.agent_id_map.findKey(ragent.id),
+        });
+    }
 
     if (Builtin.isBuiltinAgent(lagent.id)) {
         const handler = Builtin.BuiltinTable.get(lagent.id).?;

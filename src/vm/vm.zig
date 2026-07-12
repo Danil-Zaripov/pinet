@@ -222,23 +222,17 @@ pub fn execInstructions(
                 const larity = vm.runtime.agent_arities.map.get(lagent.id).?;
                 var idx: u16 = 0;
                 for (0..larity) |port_idx| {
-                    // For some reason just assigning register to a port
-                    // directly causes some trouble, need to look into that.
-                    //
-                    vm.registers[idx] = .{ .name = try vm.name_heap.allocOne() };
-                    vm.registers[idx].name.port = lagent.ports[port_idx];
+                    vm.registers[idx] = lagent.ports[port_idx].?;
                     idx += 1;
                 }
                 if (!wildcarded) {
                     const rarity = vm.runtime.agent_arities.map.get(ragent.id).?;
                     for (0..rarity) |port_idx| {
-                        vm.registers[idx] = .{ .name = try vm.name_heap.allocOne() };
-                        vm.registers[idx].name.port = ragent.ports[port_idx];
+                        vm.registers[idx] = ragent.ports[port_idx].?;
                         idx += 1;
                     }
                 } else {
-                    vm.registers[idx] = .{ .name = try vm.name_heap.allocOne() };
-                    vm.registers[idx].name.port = .{ .agent = ragent };
+                    vm.registers[idx] = .{ .agent = ragent };
                     idx += 1;
                 }
             },
