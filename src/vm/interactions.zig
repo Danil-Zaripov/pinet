@@ -47,6 +47,7 @@ pub fn name_name(vm: *VM, lname: *Name, rname: *Name) !void {
 }
 
 pub fn name_agent(vm: *VM, name: *Name, agent: *Agent) !void {
+    // TODO (KoGora): perf analysis
     if (Config.debug_printing.print_interactions) {
         std.debug.print("{s} - name interaction\n", .{vm.runtime.agent_id_map.findKey(agent.id).?});
     }
@@ -151,6 +152,7 @@ pub fn agent_agent(vm: *VM, _lagent: *Agent, _ragent: *Agent) !void {
     var lagent = _lagent;
     var ragent = _ragent;
 
+    // TODO (KoGora): perf analysis
     if (Config.debug_printing.print_interactions) {
         std.debug.print("{s} - {s}\n", .{
             vm.runtime.agent_id_map.findKey(lagent.id),
