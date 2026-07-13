@@ -1,15 +1,5 @@
 // This benchmark requires 2^20 * 16 heap size.
 
-Add(r, x) >< Cons(elem, tail) =>
-    Add(w, x) ~ elem,
-    Add(r, w) ~ tail;
-
-Add(r, x) >< Nil() =>
-    r ~ x;
-
-
-// Kind of random list
-
 MakeRandomList(lst1) ~ 240000;
 
 // Merge sort from Inpla
@@ -39,3 +29,21 @@ split(right, left) >< Cons(x, xs) =>
 	split(cntr, cntl) ~ xs;
 
 lst1 ~ msort(sorted);
+
+check2(r, x) >< [] =>
+    r ~ True();
+
+check2(r, x) >< Cons(x', xs)
+| x <= x' => checkSorted(r) ~ Cons(x, xs)
+| otherwise => r ~ False(), Eraser ~ (x, x', xs);
+
+checkSorted(r) >< Cons(x, xs) =>
+    check2(r, x) ~ xs;
+
+
+checkSorted(r) >< [] =>
+    r ~ True();
+
+checkSorted(r) ~ sorted;
+
+r;

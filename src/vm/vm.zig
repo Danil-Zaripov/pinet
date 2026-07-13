@@ -13,7 +13,11 @@ const Lexer = AST.Lexer;
 const Runtime = @import("shared_runtime");
 const Types = Runtime.Types;
 const Memory = Runtime.Memory;
-const Instruction = @import("compilation").Instruction;
+
+const Compilation = @import("compilation");
+const Instruction = Compilation.Instruction;
+const Condition = Compilation.Condition;
+
 const Printing = @import("printing");
 
 const Config = @import("config");
@@ -21,6 +25,7 @@ const Config = @import("config");
 const Agent = Types.Agent;
 const Value = Types.Value;
 const Name = Types.Name;
+const Special = Types.Special;
 const Equation = Types.Equation;
 
 const VirtualMachine = @This();
@@ -32,6 +37,7 @@ const number_of_registers = 100;
 name_heap: Memory.Heap(Name),
 agent_heap: Memory.Heap(Agent),
 registers: [number_of_registers]Value,
+condition_registers: [number_of_registers]Condition.Register.CondValue,
 
 runtime: *Runtime,
 
@@ -91,7 +97,10 @@ pub fn init(runtime: *Runtime) !Self {
         .runtime = runtime,
         .agent_heap = try heapInit(Agent, default_heap_size, runtime.gpa),
         .name_heap = try heapInit(Name, default_heap_size, runtime.gpa),
+
+        // They are not meant to be used when undefiend by the design of compilation.
         .registers = @splat(undefined),
+        .condition_registers = @splat(undefined),
     };
 }
 
@@ -100,15 +109,8 @@ pub fn deinit(self: *Self) void {
     heapDeinit(Name, self.name_heap, self.runtime.gpa);
 }
 
-pub fn getNumberType(str: []const u8) !Types.Special {
-    return if (std.mem.findScalar(u8, str, '.')) |_|
-        .{ .float = try std.fmt.parseFloat(f32, str) }
-    else
-        .{ .integer = try std.fmt.parseInt(i32, str, 10) };
-}
-
 pub fn objToValueNumber(vm: *VirtualMachine, num: AST.Object) !Value {
-    const numtype = try getNumberType(num.name);
+    const numtype = try Special.parse(num.name);
     const agent_id = Builtin.BuiltinNameMap.get(Builtin.number_builtin_ident).?;
     var agent = try vm.createAgent(agent_id);
 
@@ -220,23 +222,17 @@ pub fn execInstructions(
                 const larity = vm.runtime.agent_arities.map.get(lagent.id).?;
                 var idx: u16 = 0;
                 for (0..larity) |port_idx| {
-                    // For some reason just assigning register to a port
-                    // directly causes some trouble, need to look into that.
-                    //
-                    vm.registers[idx] = .{ .name = try vm.name_heap.allocOne() };
-                    vm.registers[idx].name.port = lagent.ports[port_idx];
+                    vm.registers[idx] = lagent.ports[port_idx].?;
                     idx += 1;
                 }
                 if (!wildcarded) {
                     const rarity = vm.runtime.agent_arities.map.get(ragent.id).?;
                     for (0..rarity) |port_idx| {
-                        vm.registers[idx] = .{ .name = try vm.name_heap.allocOne() };
-                        vm.registers[idx].name.port = ragent.ports[port_idx];
+                        vm.registers[idx] = ragent.ports[port_idx].?;
                         idx += 1;
                     }
                 } else {
-                    vm.registers[idx] = .{ .name = try vm.name_heap.allocOne() };
-                    vm.registers[idx].name.port = .{ .agent = ragent };
+                    vm.registers[idx] = .{ .agent = ragent };
                     idx += 1;
                 }
             },
@@ -325,22 +321,21 @@ pub fn runProgram(vm: *VirtualMachine, program: AST.Program) !void {
                 }
             },
             .rule => |rule| {
-                var diag = Instruction.CompilationError{};
+                const Diagnostic = Compilation.Diagnostic;
+                var diag: Diagnostic = .{};
                 const compiled_rule = Instruction.compileRule(vm.runtime, rule, &diag) catch |err| {
-                    const HandledError = Instruction.HandledError;
-                    switch (err) {
-                        HandledError.AgentInArgument, HandledError.UnknownName, HandledError.NameUsedTwice => {
-                            const message =
-                                try diag.getPrettyMessage(
-                                    vm.runtime.main_file.contents,
-                                    vm.runtime.main_file.tokens,
-                                    vm.runtime.gpa,
-                                );
-                            defer vm.runtime.gpa.free(message);
-                            std.debug.print("{s}", .{message});
-                            return error.CompilationError;
-                        },
-                        else => return err,
+                    if (Diagnostic.isHandledError(err)) {
+                        const message =
+                            try diag.getPrettyMessage(
+                                vm.runtime.main_file.contents,
+                                vm.runtime.main_file.tokens,
+                                vm.runtime.gpa,
+                            );
+                        defer vm.runtime.gpa.free(message);
+                        std.debug.print("{s}", .{message});
+                        return error.CompilationError;
+                    } else {
+                        return err;
                     }
                 };
                 if (Config.debug_printing.print_compiled_instructions) {

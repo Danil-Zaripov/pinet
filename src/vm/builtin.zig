@@ -1,3 +1,4 @@
+//! Builtin agents logic.
 const std = @import("std");
 const VM = @import("vm.zig");
 const Types = @import("shared_runtime").Types;
@@ -12,18 +13,12 @@ const Equation = Types.Equation;
 
 const Config = @import("config");
 
-// builtin agents logic
-
-// TODO: make there be less outside errors?
 pub const BuiltinAgentError = error{
     Exiter,
-    OutOfMemory,
-    NoSpaceLeft,
-    WriteFailed,
     ArityMismatch,
     NoRuleSpecified,
     BadSecondaryArgument,
-};
+} || std.mem.Allocator.Error;
 
 const BuiltinSignature = *const fn (*VM, *Agent, *Agent) BuiltinAgentError!void;
 
@@ -66,7 +61,6 @@ pub const number_builtin_ident = AST.number_special_ident;
 //
 // Maybe make the "Abc0" , ... , "Abc10" agents be placed here at compile time
 pub const builtin_agents = [_]BuiltinAgent{
-    // Let this be the first agent.
     .{ .name = "Exiter", .arity = 0, .impl = exiter },
 
     .{ .name = "Eraser", .arity = 0, .impl = eraser },

@@ -28,6 +28,13 @@ pub const Object = struct {
     pub fn isNumber(self: *const Object) bool {
         return self.name[0] == '#';
     }
+
+    pub fn getNumberIfNumber(self: *const Object) ?[]const u8 {
+        if (self.isNumber()) {
+            return self.portlist.?[0].val.name;
+        }
+        return null;
+    }
 };
 
 pub const ActivePair = struct {

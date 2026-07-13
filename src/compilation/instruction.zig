@@ -2,7 +2,10 @@ const std = @import("std");
 const AST = @import("ast");
 const Runtime = @import("shared_runtime");
 const Types = Runtime.Types;
+
 const Compilation = @import("compilation.zig");
+const Diagnostic = Compilation.Diagnostic;
+const HandledError = Diagnostic.HandledError;
 
 pub const Condition = @import("condition.zig");
 
@@ -16,19 +19,7 @@ const Name = Types.Name;
 const Value = Types.Value;
 const Equation = Types.Equation;
 
-pub const Port = struct {
-    owner: Owner,
-
-    // Null means the owner is a name in case of a wildcard rule
-    idx: ?Idx,
-
-    pub const Idx = usize;
-
-    pub const Owner = enum {
-        rhs,
-        lhs,
-    };
-};
+pub const Port = Condition.Port;
 
 pub const AgentsKey = struct { lhs: Agent.Id, rhs: Agent.Id };
 
@@ -140,14 +131,7 @@ pub fn debugPrintInstruction(runtime: *const Runtime, conditioned_rules: []Condi
     }
 }
 
-/// Assuming gpa owns the std.ArrayList(T), converts to owned list,
-/// dupes the list using arena and returns it.
-fn toArenaOwnedSlice(comptime T: type, lst: *std.ArrayList(T), gpa: std.mem.Allocator, arena: std.mem.Allocator) ![]T {
-    const owned = try lst.toOwnedSlice(gpa);
-    defer gpa.free(owned);
-    const duped = try arena.dupe(T, owned);
-    return duped;
-}
+const toArenaOwnedSlice = Compilation.toArenaOwnedSlice;
 
 pub const CompiledRule = struct {
     CompiledLhs,
@@ -155,34 +139,8 @@ pub const CompiledRule = struct {
 };
 
 pub const ConditionedRule = struct {
-    condition: ?*CompiledCondition,
+    condition: ?[]Condition.Instruction,
     instructions: CompiledPairs,
-};
-
-pub const CompiledCondition = union(enum) {
-    binary_op: Binary,
-    unary_op: Unary,
-    atom: Atom,
-
-    pub const Atom = union(enum) {
-        special: Special,
-        port: Port,
-    };
-
-    pub const Binary = struct {
-        lhs: *CompiledCondition,
-        rhs: *CompiledCondition,
-        op: Op,
-
-        pub const Op = AST.Expression.BinaryExpr.Tag;
-    };
-
-    pub const Unary = struct {
-        item: *CompiledCondition,
-        op: Op,
-
-        pub const Op = AST.Expression.UnaryExpr.Tag;
-    };
 };
 
 const CompiledPairs = []Instruction;
@@ -218,7 +176,7 @@ pub fn compileName(
     runtime: *Runtime,
     na: AST.Node(AST.Object),
     scope: *Scope,
-    diag: *CompilationError,
+    diag: *Diagnostic,
 ) !CompiledName {
     const name = na.val.name;
     var list = std.ArrayList(Instruction).empty;
@@ -248,7 +206,7 @@ pub fn compileAgent(
     runtime: *Runtime,
     ag: AST.Object,
     scope: *Scope,
-    diag: *CompilationError,
+    diag: *Diagnostic,
 ) !CompiledTerm {
     var list = std.ArrayList(Instruction).empty;
     const id = try runtime.agent_id_map.get(ag.name);
@@ -279,7 +237,7 @@ pub fn compileAgent(
     return .{ .reg = reg, .instrs = try toArenaOwnedSlice(Instruction, &list, runtime.gpa, runtime.arena) };
 }
 
-pub fn compileTerm(runtime: *Runtime, obj: AST.Node(AST.Object), scope: *Scope, diag: *CompilationError) !CompiledTerm {
+pub fn compileTerm(runtime: *Runtime, obj: AST.Node(AST.Object), scope: *Scope, diag: *Diagnostic) !CompiledTerm {
     if (obj.val.portlist) |_| {
         if (obj.val.isNumber()) {
             return try compileNumber(runtime, obj.val, scope);
@@ -297,7 +255,7 @@ pub fn compilePairs(
     lhs: AST.Node(AST.Object),
     rhs: AST.Node(AST.Object),
     pairs: []AST.Node(AST.ActivePair),
-    diag: *CompilationError,
+    diag: *Diagnostic,
 ) !CompiledPairs {
     var list = std.ArrayList(Instruction).empty;
     var scope = Scope.init(runtime.gpa);
@@ -376,49 +334,8 @@ pub fn compilePairs(
         try list.append(runtime.gpa, Instruction.push(compiledLhs.reg, compiledRhs.reg));
     }
 
+    try scope.checkNameUsage(diag);
     return try toArenaOwnedSlice(Instruction, &list, runtime.gpa, runtime.arena);
-}
-
-pub fn compileCondition(
-    runtime: *Runtime,
-    port_info: *const std.StringHashMap(Port),
-    condition: *AST.Node(AST.Expression),
-    diag: *CompilationError,
-) !*CompiledCondition {
-    const compiled = try runtime.arena.create(CompiledCondition);
-    switch (condition.val) {
-        .atom => |atom_node| {
-            const atom = atom_node.val;
-            if (atom.portlist) |ports| {
-                if (atom.isNumber()) {
-                    const num = ports[0].val.name;
-                    compiled.* = .{ .atom = .{ .special = try Compilation.getNumberType(num) } };
-                }
-            } else {
-                if (port_info.get(atom.name)) |port_idx| {
-                    compiled.* = .{ .atom = .{ .port = port_idx } };
-                } else {
-                    diag.tag = .{ .unknown_name = condition.tslice };
-                    return HandledError.UnknownName;
-                }
-            }
-        },
-        .binary_op => |binary| {
-            compiled.* = .{ .binary_op = .{
-                .op = binary.tag,
-                .lhs = try compileCondition(runtime, port_info, binary.lhs, diag),
-                .rhs = try compileCondition(runtime, port_info, binary.rhs, diag),
-            } };
-        },
-        .unary_op => |unary| {
-            compiled.* = .{ .unary_op = .{
-                .op = unary.tag,
-                .item = try compileCondition(runtime, port_info, unary.item, diag),
-            } };
-        },
-    }
-
-    return compiled;
 }
 
 pub fn compileWildcard(
@@ -426,7 +343,7 @@ pub fn compileWildcard(
     agent: AST.Node(AST.Object),
     name: AST.Node(AST.Object),
     rule_exprs: []AST.RuleExpression,
-    diag: *CompilationError,
+    diag: *Diagnostic,
 ) !CompiledRule {
     const agent_id = try runtime.agent_id_map.get(agent.val.name);
 
@@ -448,7 +365,7 @@ pub fn compileWildcard(
     for (rule_exprs) |rule_expr| {
         const instructions = try compilePairs(runtime, agent, name, rule_expr.pairs, diag);
         try lst.append(runtime.gpa, .{
-            .condition = if (rule_expr.expr) |condition| try compileCondition(runtime, &port_info, condition, diag) else null,
+            .condition = if (rule_expr.expr) |condition| try Condition.compile(runtime, &port_info, condition, diag) else null,
             .instructions = instructions,
         });
     }
@@ -459,7 +376,7 @@ pub fn compileWildcard(
     };
 }
 
-pub fn compileRule(runtime: *Runtime, rule: AST.Rule, diag: *CompilationError) !CompiledRule {
+pub fn compileRule(runtime: *Runtime, rule: AST.Rule, diag: *Diagnostic) !CompiledRule {
     if (rule.lhs.val.portlist == null or rule.rhs.val.portlist == null) {
         // Wildcard rule
         if (rule.lhs.val.portlist) |_| {
@@ -494,7 +411,7 @@ pub fn compileRule(runtime: *Runtime, rule: AST.Rule, diag: *CompilationError) !
     for (rule.rule_exprs) |rule_expr| {
         const instructions = try compilePairs(runtime, rule.lhs, rule.rhs, rule_expr.pairs, diag);
         try lst.append(runtime.gpa, .{
-            .condition = if (rule_expr.expr) |condition| try compileCondition(runtime, &port_info, condition, diag) else null,
+            .condition = if (rule_expr.expr) |condition| try Condition.compile(runtime, &port_info, condition, diag) else null,
             .instructions = instructions,
         });
     }
@@ -504,181 +421,3 @@ pub fn compileRule(runtime: *Runtime, rule: AST.Rule, diag: *CompilationError) !
         try toArenaOwnedSlice(ConditionedRule, &lst, runtime.gpa, runtime.arena),
     };
 }
-
-pub const HandledError = CompilationError.HandledError;
-
-const TokenSlice = AST.TokenSlice;
-
-pub const CompilationError = struct {
-    tag: ErrTag = undefined,
-
-    const ErrTag = union(enum) {
-        name_used_twice: struct {
-            first: TokenSlice,
-            second: TokenSlice,
-        },
-        unknown_name: TokenSlice,
-        agent_in_argument: TokenSlice,
-    };
-
-    const HandledError = error{
-        AgentInArgument,
-        UnknownName,
-        NameUsedTwice,
-    };
-
-    const Printing = @import("printing");
-    const Token = AST.Lexer.Token;
-
-    fn multiLineMarkup(
-        connectedSlices: []const TokenSlice,
-        tokens: []const Token,
-        lines: *const Printing.Lines,
-        gpa: std.mem.Allocator,
-    ) ![]const u8 {
-        var _arena = std.heap.ArenaAllocator.init(gpa);
-        defer _arena.deinit();
-
-        const arena = _arena.allocator();
-        const init_line = tokens[connectedSlices[0].start].loc.start.line;
-        var idx = init_line;
-
-        var list: std.ArrayList([]const u8) = .empty;
-        defer list.deinit(gpa);
-
-        for (connectedSlices) |slice| {
-            const starting_line = tokens[slice.start].loc.start.line;
-            const ending_line = tokens[slice.end].loc.end.line;
-
-            while (idx < starting_line) : (idx += 1) {
-                try list.append(gpa, try lines.getEnumerated(arena, idx));
-            }
-
-            if (ending_line == idx) {
-                try list.append(gpa, try lines.getEnumerated(arena, idx));
-                try list.append(gpa, try singleLineMarkup(&.{slice}, tokens, arena, Printing.Lines.enumeration_padding));
-                idx += 1;
-            } else {
-                while (idx <= ending_line) : (idx += 1) {
-                    const enumerated = try lines.getEnumerated(arena, idx);
-                    try list.append(gpa, enumerated);
-
-                    const markup_line = try arena.alloc(u8, enumerated.len);
-
-                    if (idx == starting_line) {
-                        const ch = tokens[slice.start].loc.start.ch + Printing.Lines.enumeration_padding;
-
-                        @memset(markup_line, ' ');
-                        markup_line[ch] = '^';
-
-                        if (ch + 1 < markup_line.len)
-                            @memset(markup_line[ch + 1 ..], '~');
-                    } else if (idx == ending_line) {
-                        const ch = tokens[slice.end].loc.end.ch + Printing.Lines.enumeration_padding;
-
-                        @memset(markup_line, ' ');
-                        @memset(markup_line[Printing.Lines.enumeration_padding .. ch + 1], '~');
-                    } else {
-                        @memset(markup_line[0..Printing.Lines.enumeration_padding], ' ');
-                        @memset(markup_line[Printing.Lines.enumeration_padding..], '~');
-                    }
-
-                    try list.append(gpa, markup_line);
-                }
-            }
-        }
-
-        var ret: []const u8 = "";
-        for (list.items) |line| {
-            const cur = ret;
-            defer gpa.free(cur);
-            ret = try std.fmt.allocPrint(gpa, "{s}\n{s}", .{ ret, line });
-        }
-
-        return ret;
-    }
-
-    /// Doesn't check if the tokens are really on the same line. The caller owns the slice.
-    fn singleLineMarkup(
-        connectedSlices: []const TokenSlice,
-        tokens: []const Token,
-        allocator: std.mem.Allocator,
-        padding: usize,
-    ) ![]const u8 {
-        const markup_line = try allocator.alloc(u8, tokens[connectedSlices[connectedSlices.len - 1].end].loc.end.ch + padding);
-        @memset(markup_line, ' ');
-        for (connectedSlices) |slice| {
-            markup_line[tokens[slice.start].loc.start.ch + padding] = '^';
-            for (markup_line[tokens[slice.start].loc.start.ch + padding + 1 .. tokens[slice.end].loc.end.ch + padding]) |*c| {
-                c.* = '~';
-            }
-        }
-        return markup_line;
-    }
-
-    fn symbol(self: *const CompilationError) []const u8 {
-        return switch (self.tag) {
-            .name_used_twice => "Name used more than twice",
-            .unknown_name => "Unknown name",
-            .agent_in_argument => "Agent in the argument list",
-        };
-    }
-
-    fn hint(self: *const CompilationError) []const u8 {
-        return switch (self.tag) {
-            .name_used_twice => "Names should be used exactly twice in one scope. Consider using duplicator agents (Dup2, Dup3, ...).",
-            .unknown_name => "Check for typos.",
-            .agent_in_argument =>
-            \\What you're probably trying to do is nested pattern matching.
-            \\Unfortunately it is either unimplemented or will never be implemented.
-            \\Consider using real interaction nets nested pattern matching using additional helper agents.
-        };
-    }
-
-    /// The message ends with a line break. The caller owns the message.
-    pub fn getPrettyMessage(
-        self: *const CompilationError,
-        source_file: [:0]const u8,
-        tokens: []const Token,
-        gpa: std.mem.Allocator,
-    ) ![]const u8 {
-        var lines = try Printing.Lines.init(gpa, source_file);
-        defer lines.deinit();
-        const start_token, const end_token, const connectedSlices: []const TokenSlice = switch (self.tag) {
-            .unknown_name, .agent_in_argument => |tslice| .{ tokens[tslice.start], tokens[tslice.end], &.{tslice} },
-            .name_used_twice => |names| .{ tokens[names.first.start], tokens[names.second.end], &.{ names.first, names.second } },
-        };
-
-        if (start_token.loc.start.line == end_token.loc.end.line) {
-            const line = lines.lines[start_token.loc.start.line];
-            const marked_line = try singleLineMarkup(connectedSlices, tokens, gpa, 0);
-            defer gpa.free(marked_line);
-            return try std.fmt.allocPrint(
-                gpa,
-                "Rule compilation error on line {} index {}: {s}\n{s}\n{s}\n\nHint: {s}\n",
-                .{
-                    start_token.loc.start.line + 1,
-                    start_token.loc.start.ch + 1,
-                    self.symbol(),
-                    line,
-                    marked_line,
-                    self.hint(),
-                },
-            );
-        } else {
-            const marked_lines = try multiLineMarkup(connectedSlices, tokens, &lines, gpa);
-            defer gpa.free(marked_lines);
-            return try std.fmt.allocPrint(
-                gpa,
-                "Rule compilation error starting on line {} index {}: {s}\n{s}\n\nHint: {s}\n",
-                .{
-                    start_token.loc.start.line + 1,
-                    start_token.loc.start.ch + 1,
-                    self.symbol(),
-                    marked_lines,
-                    self.hint(),
-                },
-            );
-        }
-    }
-};

@@ -1,0 +1,5 @@
+Rule compilation error on line 6 index 16: Unused name: name has only been used once
+    Eraser() ~ z;
+               ^
+
+Hint: Check for typos. Names should be used exactly twice in one scope.

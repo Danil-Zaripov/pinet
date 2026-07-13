@@ -143,6 +143,13 @@ pub const Special = union(enum) {
             return self.coerceFloat() >= other.coerceFloat();
         }
     }
+
+    pub fn parse(str: []const u8) !Special {
+        return if (std.mem.findScalar(u8, str, '.')) |_|
+            .{ .float = try std.fmt.parseFloat(f32, str) }
+        else
+            .{ .integer = try std.fmt.parseInt(i32, str, 10) };
+    }
 };
 
 pub const Value = union(enum) {
@@ -151,6 +158,14 @@ pub const Value = union(enum) {
 
     // specials are special in the fact that they can not interact directly
     special: Special,
+
+    pub fn getAgent(val: Value) ?*Agent {
+        return switch (val) {
+            .name => |name| name.unwind(),
+            .agent => |agent| agent,
+            else => unreachable,
+        };
+    }
 };
 
 pub const Equation = struct {
