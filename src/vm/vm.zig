@@ -64,7 +64,7 @@ pub fn pushUrgent(vm: *VirtualMachine, eq: Equation) !void {
 
 fn HeapType(comptime T: type) type {
     switch (Config.heap) {
-        .basic => return Memory.BasicHeap(T),
+        .basic => return Memory.ObjPool(T),
     }
 }
 
@@ -72,7 +72,7 @@ fn heapInit(comptime T: type, default_heap_size: comptime_int, gpa: std.mem.Allo
     const basic_heap = try gpa.create(HeapType(T));
 
     basic_heap.* = switch (Config.heap) {
-        .basic => try Memory.BasicHeap(T).init(gpa, default_heap_size),
+        .basic => try Memory.ObjPool(T).init(gpa, default_heap_size),
     };
 
     return basic_heap.heap();
