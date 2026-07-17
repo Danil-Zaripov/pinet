@@ -144,7 +144,7 @@ pub fn eraser(vm: *VM, self: *Agent, other: *Agent) BuiltinAgentError!void {
 
     if (Config.debug_printing.print_interactions) {
         std.debug.print("Freeing ", .{});
-        try Printing.tryPrint(vm.runtime, vm.gpa, Value{ .agent = other });
+        Printing.tryPrint(vm.runtime, vm.runtime.gpa, Value{ .agent = other }) catch {};
     }
 
     try Eraser.erase(vm, other);

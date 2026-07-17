@@ -31,11 +31,11 @@ split(right, left) >< Cons(x, xs) =>
 lst1 ~ msort(sorted);
 
 check2(r, x) >< [] =>
-    r ~ True();
+    r ~ True(), x ~ Eraser();
 
 check2(r, x) >< Cons(x', xs)
-| x <= x' => checkSorted(r) ~ Cons(x, xs)
-| otherwise => r ~ False(), Eraser ~ (x, x', xs);
+| x <= x' => checkSorted(r) ~ Cons(x, xs), Eraser() ~ x'
+| otherwise => r ~ False(), Eraser() ~ (x, x', xs);
 
 checkSorted(r) >< Cons(x, xs) =>
     check2(r, x) ~ xs;

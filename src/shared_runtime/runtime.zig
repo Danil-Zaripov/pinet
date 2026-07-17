@@ -6,6 +6,7 @@ const std = @import("std");
 
 pub const Types = @import("types.zig");
 pub const Memory = @import("memory.zig");
+pub const EquationFetcher = @import("equation_fetcher.zig");
 
 const Instruction = @import("compilation").Instruction;
 const VM = @import("vm");
@@ -142,13 +143,8 @@ _arena: *std.heap.ArenaAllocator,
 arena: std.mem.Allocator,
 gpa: std.mem.Allocator,
 
-// Potentially for threaded
-equation_queue: std.Io.Queue(Equation),
-// for singlethreaded prototype
-equation_deque: std.Deque(Equation),
+equation_fetcher: EquationFetcher,
 
-// TODO: proper priority queue?
-urgent_deque: std.Deque(Equation),
 rule_table: RuleTable,
 wildcard_table: std.AutoHashMap(Agent.Id, []ConditionedRule),
 
@@ -167,15 +163,16 @@ pub fn init(gpa: std.mem.Allocator, page: std.mem.Allocator, main_file: File) !S
     const allocator = arena.allocator();
     try Builtin.init(allocator);
 
+    const two_deque_equation_fetcher = try gpa.create(EquationFetcher.TwoDequeEquationFetcher);
+    two_deque_equation_fetcher.* = .init(gpa);
+
     return .{
         ._arena = arena,
         .arena = allocator,
         .gpa = gpa,
         .agent_id_map = try IdCountingHashMap.init(allocator),
         .associated_names = std.StringHashMap(?*Name).init(allocator),
-        .equation_queue = std.Io.Queue(Equation).init(&.{}),
-        .equation_deque = try std.Deque(Equation).initCapacity(allocator, 10),
-        .urgent_deque = try std.Deque(Equation).initCapacity(allocator, 10),
+        .equation_fetcher = two_deque_equation_fetcher.equationFetcher(),
         .agent_arities = try ArityMap.init(allocator),
         .rule_table = RuleTable.init(allocator),
         .wildcard_table = std.AutoHashMap(Agent.Id, []ConditionedRule).init(allocator),
@@ -185,13 +182,20 @@ pub fn init(gpa: std.mem.Allocator, page: std.mem.Allocator, main_file: File) !S
         .main_file = main_file,
     };
 }
+
 pub fn deinit(self: *Self) void {
     Builtin.deinit();
     self.threaded.deinit();
     self.gpa.destroy(self.threaded);
+
     self._arena.deinit();
     self.gpa.destroy(self._arena);
+
     self.importer.deinit(self.gpa);
+
+    const two_deque_equation_fetcher: *EquationFetcher.TwoDequeEquationFetcher = @ptrCast(@alignCast(self.equation_fetcher.ptr));
+    two_deque_equation_fetcher.deinit();
+    self.gpa.destroy(two_deque_equation_fetcher);
 }
 
 test {

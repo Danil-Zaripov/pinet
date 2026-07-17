@@ -155,8 +155,8 @@ pub fn agent_agent(vm: *VM, _lagent: *Agent, _ragent: *Agent) !void {
     // TODO (KoGora): perf analysis
     if (Config.debug_printing.print_interactions) {
         std.debug.print("{s} - {s}\n", .{
-            vm.runtime.agent_id_map.findKey(lagent.id),
-            vm.runtime.agent_id_map.findKey(ragent.id),
+            vm.runtime.agent_id_map.findKey(lagent.id).?,
+            vm.runtime.agent_id_map.findKey(ragent.id).?,
         });
     }
 

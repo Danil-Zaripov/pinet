@@ -55,11 +55,11 @@ pub fn createNumberAgent(vm: *VirtualMachine, num: Types.Special) !*Agent {
 }
 
 pub fn pushEquation(vm: *VirtualMachine, eq: Equation) !void {
-    try vm.runtime.equation_deque.pushBack(vm.runtime.arena, eq);
+    try vm.runtime.equation_fetcher.push(eq);
 }
 
 pub fn pushUrgent(vm: *VirtualMachine, eq: Equation) !void {
-    try vm.runtime.urgent_deque.pushBack(vm.runtime.arena, eq);
+    try vm.runtime.equation_fetcher.pushUrgent(eq);
 }
 
 fn HeapType(comptime T: type) type {
@@ -69,12 +69,12 @@ fn HeapType(comptime T: type) type {
     }
 }
 
-fn heapInit(comptime T: type, default_heap_size: comptime_int, gpa: std.mem.Allocator) !Memory.Heap(T) {
+fn heapInit(comptime T: type, heap_size: usize, gpa: std.mem.Allocator) !Memory.Heap(T) {
     const basic_heap = try gpa.create(HeapType(T));
 
     basic_heap.* = switch (Config.heap) {
-        .basic => try Memory.BasicHeap(T).init(gpa, default_heap_size),
-        .objpool => try Memory.ObjPool(T).init(gpa, default_heap_size),
+        .basic => try Memory.BasicHeap(T).init(gpa, heap_size),
+        .objpool => try Memory.ObjPool(T).init(gpa, heap_size),
     };
 
     return basic_heap.heap();
@@ -95,13 +95,11 @@ fn heapDeinit(comptime T: type, heap: Memory.Heap(T), gpa: std.mem.Allocator) vo
     gpa.destroy(basic_heap);
 }
 
-pub fn init(runtime: *Runtime) !Self {
-    const default_heap_size = 1024;
-
+pub fn init(runtime: *Runtime, heap_size: usize) !Self {
     return .{
         .runtime = runtime,
-        .agent_heap = try heapInit(Agent, default_heap_size, runtime.gpa),
-        .name_heap = try heapInit(Name, default_heap_size, runtime.gpa),
+        .agent_heap = try heapInit(Agent, heap_size, runtime.gpa),
+        .name_heap = try heapInit(Name, heap_size, runtime.gpa),
 
         // They are not meant to be used when undefiend by the design of compilation.
         .registers = @splat(undefined),
@@ -246,16 +244,8 @@ pub fn execInstructions(
 }
 
 pub fn runEquations(vm: *VirtualMachine) !void {
-    var maybe_eq: ?Equation = vm.runtime.equation_deque.popFront();
-    while (maybe_eq) |eq| {
+    while (vm.runtime.equation_fetcher.fetch()) |eq| {
         try Interaction.evalEquation(vm, eq);
-
-        if (vm.runtime.urgent_deque.popFront()) |urgent_eq| {
-            maybe_eq = urgent_eq;
-            continue;
-        }
-
-        maybe_eq = vm.runtime.equation_deque.popFront();
     }
 }
 
