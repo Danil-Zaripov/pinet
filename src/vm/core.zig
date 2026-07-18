@@ -27,6 +27,7 @@ const Value = Types.Value;
 const Name = Types.Name;
 const Special = Types.Special;
 const Equation = Types.Equation;
+const EquationUnnormalized = Types.EquationUnnormalized;
 
 const Core = @This();
 const Self = Core;
@@ -54,12 +55,18 @@ pub fn createNumberAgent(c: *Core, num: Types.Special) !*Agent {
     return ag;
 }
 
-pub fn pushEquation(c: *Core, eq: Equation) !void {
-    try c.runtime.equation_fetcher.push(eq);
+const normalizeEquation = @import("normalize.zig").normalizeEquation;
+
+pub fn pushEquation(c: *Core, eq: EquationUnnormalized) !void {
+    if (try normalizeEquation(c, eq)) |normalized| {
+        try c.runtime.equation_fetcher.push(normalized);
+    }
 }
 
-pub fn pushUrgent(c: *Core, eq: Equation) !void {
-    try c.runtime.equation_fetcher.pushUrgent(eq);
+pub fn pushUrgent(c: *Core, eq: EquationUnnormalized) !void {
+    if (try normalizeEquation(c, eq)) |normalized| {
+        try c.runtime.equation_fetcher.pushUrgent(normalized);
+    }
 }
 
 fn HeapType(comptime T: type) type {
@@ -210,7 +217,7 @@ pub fn execInstructions(
                 c.registers[instruction.operand2].agent.ports[port_idx] = c.registers[instruction.operand1];
             },
             .push => {
-                const eq = Equation{
+                const eq = EquationUnnormalized{
                     .lhs = c.registers[instruction.operand1],
                     .rhs = c.registers[instruction.operand2],
                 };
@@ -296,7 +303,7 @@ pub fn runProgram(c: *Core, program: AST.Program) !void {
             .active_pair => |ap| {
                 const lhs = try objToValue(c, ap.lhs.val);
                 const rhs = try objToValue(c, ap.rhs.val);
-                const eq = Equation{ .lhs = lhs, .rhs = rhs };
+                const eq = EquationUnnormalized{ .lhs = lhs, .rhs = rhs };
                 try c.pushEquation(eq);
 
                 if (Config.debug_printing.benchmark) {

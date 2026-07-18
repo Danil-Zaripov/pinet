@@ -9,7 +9,7 @@ const Agent = Types.Agent;
 const Value = Types.Value;
 const Name = Types.Name;
 const Special = Types.Special;
-const Equation = Types.Equation;
+const EquationUnnormalized = Types.EquationUnnormalized;
 
 const Config = @import("config");
 
@@ -228,7 +228,7 @@ pub fn dupCopy(c: *Core, self: *Agent, ag: *Agent) BuiltinAgentError!void {
     if (self.ports[0].? == .name and self.ports[0].?.name.is_open()) {
         self.ports[0].?.name.port = Value{ .agent = ag };
     } else {
-        try c.pushUrgent(Equation{
+        try c.pushUrgent(EquationUnnormalized{
             .lhs = self.ports[0].?,
             .rhs = Value{ .agent = ag },
         });
@@ -240,7 +240,7 @@ pub fn dupCopy(c: *Core, self: *Agent, ag: *Agent) BuiltinAgentError!void {
         if (port == .name and port.name.is_open()) {
             port.name.port = Value{ .agent = copy };
         } else {
-            const eq = Equation{
+            const eq = EquationUnnormalized{
                 .lhs = port,
                 .rhs = Value{ .agent = copy },
             };
@@ -256,7 +256,7 @@ pub fn dupCopy(c: *Core, self: *Agent, ag: *Agent) BuiltinAgentError!void {
             dup_ag.ports[port_idx] = Value{ .name = kv.value_ptr.*[port_idx] };
         }
         dup_ag.ports[0] = Value{ .name = kv.key_ptr.* };
-        const eq = Equation{
+        const eq = EquationUnnormalized{
             .lhs = Value{ .name = kv.value_ptr.*[0] },
             .rhs = Value{ .agent = dup_ag },
         };
@@ -273,7 +273,7 @@ pub fn tuple(c: *Core, self: *Agent, other: *Agent) BuiltinAgentError!void {
     const arity = c.runtime.agent_arities.map.get(self.id).?;
 
     for (0..arity) |port_idx| {
-        const eq = Equation{
+        const eq = EquationUnnormalized{
             .lhs = self.ports[port_idx].?,
             .rhs = other.ports[port_idx].?,
         };
@@ -316,7 +316,7 @@ pub fn number(c: *Core, self: *Agent, other: *Agent) BuiltinAgentError!void {
         // We switch places: self with secondary argument port
         const port = other.ports[1].?;
         other.ports[1] = .{ .agent = self };
-        const eq = Equation{
+        const eq = EquationUnnormalized{
             .lhs = .{ .agent = other },
             .rhs = port,
         };
@@ -337,7 +337,7 @@ pub fn number(c: *Core, self: *Agent, other: *Agent) BuiltinAgentError!void {
     const ret_ag = try c.createAgent(self.id);
     ret_ag.ports[0] = Value{ .special = ret };
 
-    const eq = Equation{
+    const eq = EquationUnnormalized{
         .lhs = other.ports[0].?,
         .rhs = .{ .agent = ret_ag },
     };
@@ -386,7 +386,7 @@ pub fn make_random_list(c: *Core, self: *Agent, other: *Agent) BuiltinAgentError
         node.ports[1] = Value{ .agent = try c.createAgent(BuiltinNameMap.get("Nil").?) };
     }
 
-    const eq = Equation{
+    const eq = EquationUnnormalized{
         .lhs = self.ports[0].?,
         .rhs = Value{ .agent = lst },
     };

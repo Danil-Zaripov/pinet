@@ -22,7 +22,6 @@ const Self = @This();
 const Agent = Types.Agent;
 const Value = Types.Value;
 const Name = Types.Name;
-const Equation = Types.Equation;
 const AgentsKey = Instruction.AgentsKey;
 const ConditionedRule = Instruction.ConditionedRule;
 

@@ -1,6 +1,6 @@
 // This benchmark requires 2^20 * 16 heap size.
 
-MakeRandomList(lst1) ~ 240000;
+MakeRandomList(lst1) ~ 800000;
 
 // Merge sort from Inpla
 

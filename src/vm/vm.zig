@@ -7,6 +7,7 @@ pub const Core = @import("core.zig");
 pub const Builtin = @import("builtin.zig");
 pub const Interaction = @import("interactions.zig");
 pub const Importer = @import("importer.zig");
+pub const normalizeEquation = @import("normalize.zig").normalizeEquation;
 
 const VM = @This();
 const Self = VM;
