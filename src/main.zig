@@ -10,10 +10,13 @@ const clap = @import("clap");
 const help =
     \\-h, --help                     Display this help and exit.
     \\-t, --threads <usize>          Specify number of threads to be run on (this does not work yet).
+    \\-m, --heap-size <usize>        Specify the initial size of the heap. Default: 1024
     \\-f, --filepath <str>           Specify file to be interpreted. Default: ./tests/list_sorting.in
     \\
 ;
 const params = clap.parseParamsComptime(help);
+
+const default_heap_size: usize = 1024;
 
 // TODO: make it less cramped
 pub fn main(init: std.process.Init) !void {
@@ -47,6 +50,7 @@ pub fn main(init: std.process.Init) !void {
     } else {
         std.debug.print("File not specified, executing {s}\nConsider using \"--help\"\n", .{filepath});
     }
+    const heap_size = res.args.@"heap-size" orelse default_heap_size;
 
     const contents = try Io.Dir.readFileAllocOptions(
         Io.Dir.cwd(),
@@ -81,7 +85,7 @@ pub fn main(init: std.process.Init) !void {
     };
     var runtime = try SharedRuntime.init(gpa, std.heap.page_allocator, main_file);
     defer runtime.deinit();
-    var vm = try VM.init(&runtime);
+    var vm = try VM.init(&runtime, heap_size);
     defer vm.deinit();
     vm.runProgram(program) catch |err| {
         if (err == error.CompilationError) {
