@@ -4,7 +4,6 @@ const Config = @import("config");
 
 pub const HeapKind = enum { basic, objpool };
 
-
 pub fn Heap(comptime T: type) type {
     return struct {
         const Self = @This();
@@ -180,7 +179,7 @@ pub fn ObjPool(comptime T: type) type {
 
             new_ptr.ptr = self.free_list;
             self.free_list = new_ptr;
-            self.free_count += 1;        
+            self.free_count += 1;
         }
 
         fn printUsage(ctx: *anyopaque) void {

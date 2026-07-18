@@ -89,7 +89,7 @@ fn heapDeinit(comptime T: type, heap: Memory.Heap(T), gpa: std.mem.Allocator) vo
         },
         .objpool => {
             basic_heap.deinit(gpa);
-        }
+        },
     }
 
     gpa.destroy(basic_heap);

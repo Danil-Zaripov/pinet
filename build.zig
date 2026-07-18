@@ -116,9 +116,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("src/shared_runtime/memory.zig"),
             .target = target,
             .optimize = optimize,
-            .imports = &.{
-
-            },
+            .imports = &.{},
         }),
     });
 
@@ -139,7 +137,7 @@ pub fn build(b: *std.Build) void {
     const options = b.addOptions();
     options.addOption(DebugPrintConfig, "debug_printing", debug_printing);
 
-    const heap_kind = b.option(HeapKind, "heap", "Which heap implementation to use") orelse .basic;
+    const heap_kind = b.option(HeapKind, "heap", "Which heap implementation to use") orelse .objpool;
     options.addOption(HeapKind, "heap", heap_kind);
 
     const mod_options = options.createModule();
@@ -166,8 +164,8 @@ pub fn build(b: *std.Build) void {
         .root_module = exe.root_module,
     });
 
-    const exe_tests_memory = b.addTest(.{ 
-        .root_module = exe_memory.root_module, 
+    const exe_tests_memory = b.addTest(.{
+        .root_module = exe_memory.root_module,
     });
 
     const run_exe_tests = b.addRunArtifact(exe_tests);
