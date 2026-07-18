@@ -2,7 +2,8 @@ const std = @import("std");
 
 const Config = @import("config");
 
-pub const HeapKind = enum { basic };
+pub const HeapKind = enum { basic, objpool };
+
 
 pub fn Heap(comptime T: type) type {
     return struct {
@@ -129,37 +130,29 @@ pub fn BasicHeap(comptime T: type) type {
 pub fn ObjPool(comptime T: type) type {
     return struct {
         const Self = @This();
-        items: []T,
-        capacity: usize,
-        free_list: *T,
-        is_last_allocation: bool,
-        free_count: usize,
-        alignment: usize,
+        const Optional = union {
+            value: T,
+            ptr: ?*Optional,
+        };
 
-        const ObjPoolError = error{IncorrectTypeSize};
+        items: []Optional,
+        capacity: usize,
+        free_list: ?*Optional,
+        free_count: usize,
 
         pub fn init(gpa: std.mem.Allocator, capacity: usize) !Self {
-            const ptr_align = @alignOf(?*anyopaque);
-            if (@sizeOf(T) < @sizeOf(usize)) {
-                @compileError("User's type is too small, the allocator works only with types greater than or equal to " ++ std.fmt.comptimePrint("{}", .{@sizeOf(usize)}));
-            }
-
-            const final_align = if (@alignOf(T) > ptr_align) @alignOf(T) else ptr_align;
-            const items = try gpa.alignedAlloc(T, std.mem.Alignment.fromByteUnits(final_align), capacity);
-            //const items = try gpa.alloc(T, capacity);
+            const items = try gpa.alloc(Optional, capacity);
             blockInit(items);
             return .{
                 .items = items,
                 .capacity = capacity,
                 .free_list = @ptrCast(@alignCast(items)),
-                .is_last_allocation = false,
                 .free_count = capacity,
-                .alignment = final_align,
             };
         }
 
         pub fn deinit(self: *Self, gpa: std.mem.Allocator) void {
-            gpa.rawFree(std.mem.sliceAsBytes(self.items), std.mem.Alignment.fromByteUnits(self.alignment), @returnAddress());
+            gpa.free(self.items);
         }
 
         const vtable: Heap(T).VTable = .{
@@ -174,32 +167,20 @@ pub fn ObjPool(comptime T: type) type {
 
         fn allocOne(ctx: *anyopaque) !*T {
             const self: *Self = @ptrCast(@alignCast(ctx));
-
-            if (self.is_last_allocation) {
-                return error.OutOfMemory;
-            }
-
-            const allocated_ptr = self.free_list;
-            const next_ptr_ref: *?*anyopaque = @ptrCast(@alignCast(allocated_ptr));
-            const next_ptr = next_ptr_ref.*;
-
-            if (next_ptr == null) {
-                self.is_last_allocation = true;
-            } else {
-                self.free_list = @ptrCast(@alignCast(next_ptr.?));
-            }
-
+            const current_ptr = self.free_list orelse return error.OutOfMemory;
+            self.free_list = current_ptr.*.ptr;
             self.free_count -= 1;
-            return allocated_ptr;
+            return @ptrCast(current_ptr);
         }
 
         fn freeOne(ctx: *anyopaque, elem: *T) void {
             const self: *Self = @ptrCast(@alignCast(ctx));
-            const new_elem: *?*anyopaque = @ptrCast(@alignCast(elem));
-            new_elem.* = self.free_list;
-            self.free_list = @ptrCast(@alignCast(new_elem));
-            self.free_count += 1;
-            self.is_last_allocation = false;
+            //we use this pointer as a pointer to Optional
+            const new_ptr: *Optional = @ptrCast(@alignCast(elem));
+
+            new_ptr.ptr = self.free_list;
+            self.free_list = new_ptr;
+            self.free_count += 1;        
         }
 
         fn printUsage(ctx: *anyopaque) void {
@@ -213,20 +194,20 @@ pub fn ObjPool(comptime T: type) type {
             });
         }
 
-        fn blockInit(items: []T) void {
+        fn blockInit(items: []Optional) void {
             for (0..items.len) |i| {
-                const current_ptr: *?*anyopaque = @ptrCast(@alignCast(&items[i]));
                 if (i == items.len - 1) {
-                    current_ptr.* = null;
-                    break;
+                    items[i] = .{ .ptr = null };
+                } else {
+                    items[i] = .{ .ptr = &items[i + 1] };
                 }
-                current_ptr.* = @ptrCast(@alignCast(&items[i + 1]));
             }
         }
     };
 }
 
 test "ObjPool: basic allocation and free" {
+    std.debug.print("\n>>> Running ObjPool test <<<\n", .{});
     const gpa = std.testing.allocator;
 
     const meow = struct {
@@ -245,6 +226,24 @@ test "ObjPool: basic allocation and free" {
 
     my_heap.printUsage();
     try std.testing.expectEqual(@as(meow, .{ .meow = 1, .sh = 2 }), item_ptr.*);
+
+    my_heap.freeOne(item_ptr);
+    my_heap.printUsage();
+}
+
+test "ObjPool: basic allocation and free, type smaller than usize" {
+    std.debug.print("\n>>> Running ObjPool test <<<\n", .{});
+    const gpa = std.testing.allocator;
+
+    var pool = try ObjPool(i32).init(gpa, 4);
+    defer pool.deinit(gpa);
+
+    const my_heap = pool.heap();
+    const item_ptr = try my_heap.allocOne();
+
+    item_ptr.* = 56;
+    my_heap.printUsage();
+    try std.testing.expectEqual(@as(i32, 56), item_ptr.*);
 
     my_heap.freeOne(item_ptr);
     my_heap.printUsage();
@@ -269,7 +268,7 @@ test "ObjPool: basic allocation and free with data alignment smaller than usize 
     item_ptr.ears = 0;
     item_ptr.legs = 0;
     item_ptr.vibrases = 7;
-    item_ptr.eyes = 89;
+    item_ptr.eyes = 80;
 
     my_heap.printUsage();
     try std.testing.expectEqual(@as(meow2, .{ .ears = 0, .legs = 0, .vibrases = 7, .eyes = 89 }), item_ptr.*);
@@ -397,4 +396,21 @@ test "ObjPool: LIFO allocation order after free" {
     my_heap.freeOne(second_reallocated);
 
     my_heap.printUsage();
+}
+
+test "ObjPool: interior slots are misaligned for the intrusive free-list pointer " {
+    const gpa = std.testing.allocator;
+    const Meow = struct {
+        ears: u8,
+        eyes: u8,
+        legs: u16,
+        whiskers: u32,
+        tail: u32,
+    };
+
+    const ptr_align = @alignOf(*Meow);
+    if (@sizeOf(Meow) % ptr_align == 0) return error.SkipZigTest;
+
+    var pool = try ObjPool(Meow).init(gpa, 2);
+    defer pool.deinit(gpa);
 }
