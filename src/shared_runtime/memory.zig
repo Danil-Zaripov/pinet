@@ -232,7 +232,6 @@ test "ObjPool: basic allocation and free" {
 }
 
 test "ObjPool: basic allocation and free, type smaller than usize" {
-    std.debug.print("\n>>> Running ObjPool test <<<\n", .{});
     const gpa = std.testing.allocator;
 
     var pool = try ObjPool(i32).init(gpa, 4);
@@ -268,7 +267,7 @@ test "ObjPool: basic allocation and free with data alignment smaller than usize 
     item_ptr.ears = 0;
     item_ptr.legs = 0;
     item_ptr.vibrases = 7;
-    item_ptr.eyes = 80;
+    item_ptr.eyes = 89;
 
     my_heap.printUsage();
     try std.testing.expectEqual(@as(meow2, .{ .ears = 0, .legs = 0, .vibrases = 7, .eyes = 89 }), item_ptr.*);
