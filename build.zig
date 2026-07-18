@@ -110,6 +110,16 @@ pub fn build(b: *std.Build) void {
         // .use_llvm = true,
     });
 
+    const exe_memory = b.addExecutable(.{
+        .name = "memory",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/shared_runtime/memory.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{},
+        }),
+    });
+
     // for perf
     exe.root_module.omit_frame_pointer = b.option(bool, "no-omit-frame-pointer", "Do not omit frame pointer");
 
@@ -127,7 +137,7 @@ pub fn build(b: *std.Build) void {
     const options = b.addOptions();
     options.addOption(DebugPrintConfig, "debug_printing", debug_printing);
 
-    const heap_kind = b.option(HeapKind, "heap", "Which heap implementation to use") orelse .basic;
+    const heap_kind = b.option(HeapKind, "heap", "Which heap implementation to use") orelse .objpool;
     options.addOption(HeapKind, "heap", heap_kind);
 
     const mod_options = options.createModule();
@@ -154,7 +164,12 @@ pub fn build(b: *std.Build) void {
         .root_module = exe.root_module,
     });
 
+    const exe_tests_memory = b.addTest(.{
+        .root_module = exe_memory.root_module,
+    });
+
     const run_exe_tests = b.addRunArtifact(exe_tests);
+    const run_memory_tests = b.addRunArtifact(exe_tests_memory);
 
     const golden_testing_run_cmd, const run_golden_tests_tests = setupGoldenTesting(b, target, optimize);
 
@@ -168,4 +183,5 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_exe_tests.step);
     test_step.dependOn(&run_golden_tests_tests.step);
     test_step.dependOn(&golden_testing_run_cmd.step);
+    test_step.dependOn(&run_memory_tests.step);
 }
