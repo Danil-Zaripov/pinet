@@ -53,6 +53,22 @@ pub const Name = struct {
         return null;
     }
 
+    /// Like unchain, but instead returns the last in the chain, erasing every name before it.
+    ///
+    /// a -> b -> c -> Agent() >> traverseFree(a); >> c -> Agent()
+    pub fn traverseFree(name: *Name, heap: memory.Heap(Name)) *Name {
+        var node = name;
+        while (node.port) |port| {
+            if (port == .name) {
+                heap.freeOne(node);
+                node = port.name;
+            } else {
+                break;
+            }
+        }
+        return node;
+    }
+
     pub fn is_open(name: *Name) bool {
         return if (name.port) |_| false else true;
     }
@@ -168,9 +184,14 @@ pub const Value = union(enum) {
     }
 };
 
-pub const Equation = struct {
+pub const EquationUnnormalized = struct {
     lhs: Value,
     rhs: Value,
+};
+
+pub const Equation = struct {
+    lhs: *Agent,
+    rhs: *Agent,
 };
 
 test "unchain" {

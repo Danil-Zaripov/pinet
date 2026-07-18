@@ -22,47 +22,6 @@ const Name = Types.Name;
 const Equation = Types.Equation;
 const Special = Types.Special;
 
-pub fn name_name(c: *Core, lname: *Name, rname: *Name) !void {
-    // TODO: optimise name chaining
-
-    Debug.log(.print_interactions, "name - name interaction\n", .{});
-
-    // Also can this be rewritten to be more linear?
-    if (lname.port) |lport| {
-        if (rname.port) |rport| {
-            defer c.name_heap.freeOne(lname);
-            defer c.name_heap.freeOne(rname);
-
-            const eq = Equation{
-                .lhs = lport,
-                .rhs = rport,
-            };
-            try c.pushEquation(eq);
-        } else {
-            rname.port = Value{ .name = lname };
-        }
-    } else {
-        lname.port = Value{ .name = rname };
-    }
-}
-
-pub fn name_agent(c: *Core, name: *Name, agent: *Agent) !void {
-    if (Config.debug_printing.print_interactions) {
-        std.debug.print("{s} - name interaction\n", .{c.runtime.agent_id_map.findKey(agent.id).?});
-    }
-
-    if (name.port) |port| {
-        defer c.name_heap.freeOne(name);
-        const eq = Equation{
-            .lhs = port,
-            .rhs = Value{ .agent = agent },
-        };
-        try c.pushUrgent(eq);
-    } else {
-        name.port = Value{ .agent = agent };
-    }
-}
-
 const SimpleValue = union(enum) {
     bool: bool,
     special: Special,
@@ -83,11 +42,9 @@ fn evalCondition(c: *Core, lagent: *Agent, ragent: *Agent, instructions: []Condi
                 const agent = agent: {
                     switch (value) {
                         .name => |name| {
-                            // Will this work everywhere?
-                            const unwinded = name.unwind();
-                            if (unwinded) |agent| {
-                                name.unchain(c.name_heap);
-                                break :agent agent;
+                            const traversed = name.traverseFree(c.name_heap);
+                            if (traversed.port) |traversed_port| {
+                                break :agent traversed_port.agent;
                             } else {
                                 return EvaluationError.BadSecondaryValue;
                             }
@@ -147,9 +104,9 @@ fn evalCondition(c: *Core, lagent: *Agent, ragent: *Agent, instructions: []Condi
     unreachable;
 }
 
-pub fn agent_agent(c: *Core, _lagent: *Agent, _ragent: *Agent) !void {
-    var lagent = _lagent;
-    var ragent = _ragent;
+pub fn evalEquation(c: *Core, eq: Equation) !void {
+    var lagent = eq.lhs;
+    var ragent = eq.rhs;
 
     // TODO (KoGora): perf analysis
     if (Config.debug_printing.print_interactions) {
@@ -245,33 +202,5 @@ pub fn agent_agent(c: *Core, _lagent: *Agent, _ragent: *Agent) !void {
             std.mem.swap(*Agent, &lagent, &ragent);
             continue :evaluation .wildcard_lhs;
         },
-    }
-}
-
-pub fn evalEquation(c: *Core, eq: Equation) !void {
-    switch (eq.lhs) {
-        .name => |lname| {
-            switch (eq.rhs) {
-                .name => |rname| {
-                    try name_name(c, lname, rname);
-                },
-                .agent => |ragent| {
-                    try name_agent(c, lname, ragent);
-                },
-                else => unreachable,
-            }
-        },
-        .agent => |lagent| {
-            switch (eq.rhs) {
-                .name => |rname| {
-                    try name_agent(c, rname, lagent);
-                },
-                .agent => |ragent| {
-                    try agent_agent(c, lagent, ragent);
-                },
-                else => unreachable,
-            }
-        },
-        else => unreachable,
     }
 }
