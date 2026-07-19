@@ -22,6 +22,8 @@ const Name = Types.Name;
 const Equation = Types.Equation;
 const Special = Types.Special;
 
+const Executioner = @import("executioner.zig");
+
 const SimpleValue = union(enum) {
     bool: bool,
     special: Special,
@@ -181,11 +183,11 @@ pub fn evalEquation(c: *Core, eq: Equation) !void {
                         }
                     };
                     if (evaluated) {
-                        try Core.execInstructions(c, conditioned.instructions, lagent, ragent, wildcarded);
+                        try Executioner.execBytecode(c, conditioned.instructions, lagent, ragent, wildcarded);
                         return;
                     }
                 } else {
-                    try Core.execInstructions(c, conditioned.instructions, lagent, ragent, wildcarded);
+                    try Executioner.execBytecode(c, conditioned.instructions, lagent, ragent, wildcarded);
                     return;
                 }
             }

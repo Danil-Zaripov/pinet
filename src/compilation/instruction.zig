@@ -145,7 +145,7 @@ pub const ConditionedRule = struct {
     instructions: CompiledPairs,
 };
 
-const CompiledPairs = []Instruction;
+const CompiledPairs = []Bytecode;
 
 const CompiledTerm = struct {
     reg: RegisterId,
@@ -217,7 +217,8 @@ pub fn compileAgent(
     const reg = ctx.scope.getFree();
     try ctx.appendInstruction(Instruction.mk_agent(id, reg));
 
-    for (0..arity) |idx| {
+    for (0..arity) |_idx| {
+        const idx: u8 = @intCast(_idx);
         const port = ag.portlist.?[idx];
         if (port.val.portlist) |_| {
             if (port.val.isNumber()) {
@@ -258,6 +259,7 @@ pub fn compilePairs(
     diag: *Diagnostic,
 ) !CompiledPairs {
     var list = std.ArrayList(Instruction).empty;
+    defer list.deinit(runtime.gpa);
     var scope = Scope.init(runtime.gpa);
     defer scope.deinit();
     const ctx: TermContext = .{
@@ -338,7 +340,15 @@ pub fn compilePairs(
     }
 
     try scope.checkNameUsage(diag);
-    return try toArenaOwnedSlice(Instruction, &list, runtime.gpa, runtime.arena);
+
+    const shrinked = shrinked: {
+        const shrinked = try Shrinker.shrinkInstructions(runtime.gpa, list.items);
+        defer runtime.gpa.free(shrinked);
+        const duped = try runtime.arena.dupe(Bytecode, shrinked);
+        break :shrinked duped;
+    };
+
+    return shrinked;
 }
 
 pub fn compileWildcard(
@@ -360,7 +370,7 @@ pub fn compileWildcard(
 
     for (agent.val.portlist.?, 0..) |port, idx| {
         // agent is lhs by default
-        try port_info.put(port.val.name, Port{ .idx = idx, .owner = .lhs });
+        try port_info.put(port.val.name, Port{ .idx = @intCast(idx), .owner = .lhs });
     }
 
     try port_info.put(name.val.name, Port{ .idx = null, .owner = .rhs });
@@ -404,11 +414,11 @@ pub fn compileRule(runtime: *Runtime, rule: AST.Rule, diag: *Diagnostic) !Compil
     defer port_info.deinit();
 
     for (rule.lhs.val.portlist.?, 0..) |port, idx| {
-        try port_info.put(port.val.name, Port{ .idx = idx, .owner = .lhs });
+        try port_info.put(port.val.name, Port{ .idx = @intCast(idx), .owner = .lhs });
     }
 
     for (rule.rhs.val.portlist.?, 0..) |port, idx| {
-        try port_info.put(port.val.name, Port{ .idx = idx, .owner = .rhs });
+        try port_info.put(port.val.name, Port{ .idx = @intCast(idx), .owner = .rhs });
     }
 
     for (rule.rule_exprs) |rule_expr| {

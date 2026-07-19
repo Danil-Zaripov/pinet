@@ -26,7 +26,7 @@ pub const Port = struct {
     // Null means the owner is a name in case of a wildcard rule
     idx: ?Idx,
 
-    pub const Idx = usize;
+    pub const Idx = u8;
 
     pub const Owner = enum {
         rhs,

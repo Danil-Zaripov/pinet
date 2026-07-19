@@ -13,6 +13,8 @@ pub const Bytecode = packed struct(u64) {
         float: f32,
     },
 
+    _unused: u8 = undefined,
+
     pub const Opcode = enum(u8) {
         load_arguments,
         mk_agent,
@@ -29,8 +31,8 @@ pub fn shrinkInstructions(gpa: std.mem.Allocator, instrs: []Instruction) ![]Byte
     for (instrs) |instr| {
         var shrinked: Bytecode = .{
             .opcode = undefined,
-            .port1 = undefined,
-            .port2 = undefined,
+            .src = undefined,
+            .dest = undefined,
             .val = undefined,
         };
 
