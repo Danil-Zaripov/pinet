@@ -8,7 +8,7 @@ const Diagnostic = @import("compilation.zig").Diagnostic;
 
 const Scope = @This();
 
-pub const RegisterId = usize;
+pub const RegisterId = u8;
 
 pub const NameInfo = struct {
     location: RegisterId,

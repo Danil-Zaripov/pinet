@@ -8,6 +8,8 @@ const Diagnostic = Compilation.Diagnostic;
 const HandledError = Diagnostic.HandledError;
 
 pub const Condition = @import("condition.zig");
+const Shrinker = @import("shrinker.zig");
+pub const Bytecode = Shrinker.Bytecode;
 
 const Scope = @import("scope.zig");
 const RegisterId = Scope.RegisterId;
@@ -147,46 +149,50 @@ const CompiledPairs = []Instruction;
 
 const CompiledTerm = struct {
     reg: RegisterId,
-    instrs: []Instruction,
 };
 
 const CompiledName = struct {
     name_info: *NameInfo,
-    instrs: []Instruction,
+};
+
+const TermContext = struct {
+    runtime: *Runtime,
+    list: *std.ArrayList(Instruction),
+    scope: *Scope,
+    diag: *Diagnostic,
+
+    inline fn appendInstruction(ctx: *const TermContext, instr: Instruction) !void {
+        try ctx.list.append(ctx.runtime.gpa, instr);
+    }
 };
 
 pub fn compileNumber(
-    runtime: *Runtime,
+    ctx: *const TermContext,
     obj: AST.Object,
-    scope: *Scope,
 ) !CompiledTerm {
-    const agent_id = runtime.agent_id_map.map.get(AST.number_special_ident).?;
-    var list = std.ArrayList(Instruction).empty;
-    const reg = scope.getFree();
-    try list.append(runtime.gpa, mk_agent(agent_id, reg));
-    const special_reg = scope.getFree();
+    const agent_id = ctx.runtime.agent_id_map.map.get(AST.number_special_ident).?;
+    const reg = ctx.scope.getFree();
+    try ctx.appendInstruction(mk_agent(agent_id, reg));
+    const special_reg = ctx.scope.getFree();
     const special = try Compilation.getNumberType(obj.portlist.?[0].val.name);
-    try list.append(runtime.gpa, mk_special(special, special_reg));
-    try list.append(runtime.gpa, put_into_port(0, special_reg, reg));
+    try ctx.appendInstruction(mk_special(special, special_reg));
+    try ctx.appendInstruction(put_into_port(0, special_reg, reg));
 
-    return .{ .reg = reg, .instrs = try toArenaOwnedSlice(Instruction, &list, runtime.gpa, runtime.arena) };
+    return .{ .reg = reg };
 }
 
 pub fn compileName(
-    runtime: *Runtime,
+    ctx: *const TermContext,
     na: AST.Node(AST.Object),
-    scope: *Scope,
-    diag: *Diagnostic,
 ) !CompiledName {
     const name = na.val.name;
-    var list = std.ArrayList(Instruction).empty;
     var name_info: *NameInfo = undefined;
-    if (scope.map.getPtr(name)) |existing| {
+    if (ctx.scope.map.getPtr(name)) |existing| {
         if (!existing.used) {
             name_info = existing;
             existing.used = true;
         } else {
-            diag.tag = .{
+            ctx.diag.tag = .{
                 .name_used_twice = .{
                     .first = existing.token_slice,
                     .second = na.tslice,
@@ -195,58 +201,52 @@ pub fn compileName(
             return HandledError.NameUsedTwice;
         }
     } else {
-        name_info = try scope.associate(name, na.tslice);
-        try list.append(runtime.gpa, Instruction.mk_name(name_info.location));
+        name_info = try ctx.scope.associate(name, na.tslice);
+        try ctx.appendInstruction(Instruction.mk_name(name_info.location));
     }
 
-    return .{ .name_info = name_info, .instrs = try toArenaOwnedSlice(Instruction, &list, runtime.gpa, runtime.arena) };
+    return .{ .name_info = name_info };
 }
 
 pub fn compileAgent(
-    runtime: *Runtime,
+    ctx: *const TermContext,
     ag: AST.Object,
-    scope: *Scope,
-    diag: *Diagnostic,
 ) !CompiledTerm {
-    var list = std.ArrayList(Instruction).empty;
-    const id = try runtime.agent_id_map.get(ag.name);
-    const arity = try runtime.agent_arities.get(id, ag.portlist.?.len);
-    const reg = scope.getFree();
-    try list.append(runtime.gpa, Instruction.mk_agent(id, reg));
+    const id = try ctx.runtime.agent_id_map.get(ag.name);
+    const arity = try ctx.runtime.agent_arities.get(id, ag.portlist.?.len);
+    const reg = ctx.scope.getFree();
+    try ctx.appendInstruction(Instruction.mk_agent(id, reg));
 
     for (0..arity) |idx| {
         const port = ag.portlist.?[idx];
         if (port.val.portlist) |_| {
             if (port.val.isNumber()) {
                 // number
-                const compiledNumber = try compileNumber(runtime, port.val, scope);
-                try list.appendSlice(runtime.gpa, compiledNumber.instrs);
-                try list.append(runtime.gpa, Instruction.put_into_port(idx, compiledNumber.reg, reg));
+                const compiledNumber = try compileNumber(ctx, port.val);
+                try ctx.appendInstruction(Instruction.put_into_port(idx, compiledNumber.reg, reg));
             } else {
-                const compiledAgent = try compileAgent(runtime, port.val, scope, diag);
-                try list.appendSlice(runtime.gpa, compiledAgent.instrs);
-                try list.append(runtime.gpa, Instruction.put_into_port(idx, compiledAgent.reg, reg));
+                const compiledAgent = try compileAgent(ctx, port.val);
+                try ctx.appendInstruction(Instruction.put_into_port(idx, compiledAgent.reg, reg));
             }
         } else {
-            const compiledName = try compileName(runtime, port, scope, diag);
-            try list.appendSlice(runtime.gpa, compiledName.instrs);
-            try list.append(runtime.gpa, Instruction.put_into_port(idx, compiledName.name_info.location, reg));
+            const compiledName = try compileName(ctx, port);
+            try ctx.appendInstruction(Instruction.put_into_port(idx, compiledName.name_info.location, reg));
         }
     }
 
-    return .{ .reg = reg, .instrs = try toArenaOwnedSlice(Instruction, &list, runtime.gpa, runtime.arena) };
+    return .{ .reg = reg };
 }
 
-pub fn compileTerm(runtime: *Runtime, obj: AST.Node(AST.Object), scope: *Scope, diag: *Diagnostic) !CompiledTerm {
+pub fn compileTerm(ctx: *const TermContext, obj: AST.Node(AST.Object)) !CompiledTerm {
     if (obj.val.portlist) |_| {
         if (obj.val.isNumber()) {
-            return try compileNumber(runtime, obj.val, scope);
+            return try compileNumber(ctx, obj.val);
         } else {
-            return try compileAgent(runtime, obj.val, scope, diag);
+            return try compileAgent(ctx, obj.val);
         }
     } else {
-        const compiledName = try compileName(runtime, obj, scope, diag);
-        return .{ .instrs = compiledName.instrs, .reg = compiledName.name_info.location };
+        const compiledName = try compileName(ctx, obj);
+        return .{ .reg = compiledName.name_info.location };
     }
 }
 
@@ -260,9 +260,14 @@ pub fn compilePairs(
     var list = std.ArrayList(Instruction).empty;
     var scope = Scope.init(runtime.gpa);
     defer scope.deinit();
+    const ctx: TermContext = .{
+        .runtime = runtime,
+        .list = &list,
+        .scope = &scope,
+        .diag = diag,
+    };
 
-    // init the "arguments"
-    try list.append(runtime.gpa, load_arguments());
+    try ctx.appendInstruction(load_arguments());
 
     for (lhs.val.portlist.?) |port_node| {
         const port = port_node.val;
@@ -327,10 +332,8 @@ pub fn compilePairs(
 
     for (pairs) |node_pair| {
         const pair = node_pair.val;
-        const compiledLhs = try compileTerm(runtime, pair.lhs, &scope, diag);
-        const compiledRhs = try compileTerm(runtime, pair.rhs, &scope, diag);
-        try list.appendSlice(runtime.gpa, compiledLhs.instrs);
-        try list.appendSlice(runtime.gpa, compiledRhs.instrs);
+        const compiledLhs = try compileTerm(&ctx, pair.lhs);
+        const compiledRhs = try compileTerm(&ctx, pair.rhs);
         try list.append(runtime.gpa, Instruction.push(compiledLhs.reg, compiledRhs.reg));
     }
 
