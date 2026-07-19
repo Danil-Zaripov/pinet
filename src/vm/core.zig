@@ -325,7 +325,7 @@ pub fn runProgram(c: *Core, program: AST.Program) !void {
             .rule => |rule| {
                 const Diagnostic = Compilation.Diagnostic;
                 var diag: Diagnostic = .{};
-                const compiled_rule = Instruction.compileRule(c.runtime, rule, &diag) catch |err| {
+                Instruction.compileRule(c.runtime, rule, &diag) catch |err| {
                     if (Diagnostic.isHandledError(err)) {
                         const message =
                             try diag.getPrettyMessage(
@@ -340,17 +340,6 @@ pub fn runProgram(c: *Core, program: AST.Program) !void {
                         return err;
                     }
                 };
-                if (Config.debug_printing.print_compiled_instructions) {
-                    try Instruction.debugPrintInstruction(c.runtime, compiled_rule[1]);
-                    const guard_size = 40;
-                    const guard: [guard_size]u8 = comptime @splat('=');
-                    std.debug.print("{s}\n", .{&guard});
-                }
-                if (compiled_rule[0] == .agents) {
-                    try c.runtime.rule_table.map.put(compiled_rule[0].agents, compiled_rule[1]);
-                } else {
-                    try c.runtime.wildcard_table.put(compiled_rule[0].wildcard, compiled_rule[1]);
-                }
             },
             else => {
                 unreachable;

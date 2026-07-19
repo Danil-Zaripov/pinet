@@ -52,7 +52,7 @@ pub const Expression = union(enum) {
         rhs: *Node(Expression),
         tag: Tag,
 
-        pub const Tag = enum {
+        pub const Tag = enum(u8) {
             eq,
             logic_or,
             logic_and,
@@ -79,7 +79,7 @@ pub const Expression = union(enum) {
         item: *Node(Expression),
         tag: Tag,
 
-        pub const Tag = enum {
+        pub const Tag = enum(u8) {
             not,
         };
     };

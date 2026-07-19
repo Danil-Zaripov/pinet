@@ -35,7 +35,7 @@ pub const Port = struct {
 };
 
 pub const Register = struct {
-    pub const Id = usize;
+    pub const Id = u8;
     pub const CondValue = union(enum) {
         bool: bool,
         special: Special,
@@ -45,7 +45,7 @@ pub const Register = struct {
 
 const ConditionScope = struct {
     map: std.AutoHashMap(Port, Register.Id),
-    free_idx: usize = 0,
+    free_idx: Register.Id = 0,
 
     pub fn init(gpa: std.mem.Allocator) !ConditionScope {
         return ConditionScope{
@@ -73,9 +73,9 @@ const ConditionScope = struct {
     }
 };
 
-const Op = struct {
-    const Binary = AST.Expression.BinaryExpr.Tag;
-    const Unary = AST.Expression.UnaryExpr.Tag;
+pub const Op = struct {
+    pub const Binary = AST.Expression.BinaryExpr.Tag;
+    pub const Unary = AST.Expression.UnaryExpr.Tag;
 };
 
 pub const Instruction = struct {

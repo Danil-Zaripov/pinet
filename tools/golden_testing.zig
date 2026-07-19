@@ -353,7 +353,13 @@ pub fn processDirectory(ctx: Context, path_to_dir: []const u8, what_are_we_getti
             };
             const filepath = try std.fs.path.resolve(arena, &.{ path_to_dir_resolved, entry.name });
             const query = Query.init(ctx, filepath, golden_path, what_are_we_getting) catch |err|
-                if (err == error.HandledError) continue else return err;
+                if (err == error.HandledError) {
+                    switch (ctx.mode) {
+                        .Compare => summary.comparison.failed += 1,
+                        .Generate => return err,
+                    }
+                    continue;
+                } else return err;
 
             defer query.deinit(ctx.gpa);
             switch (ctx.mode) {

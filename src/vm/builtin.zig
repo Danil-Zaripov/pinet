@@ -364,26 +364,29 @@ pub fn make_random_list(c: *Core, self: *Agent, other: *Agent) BuiltinAgentError
     });
     const rand = prng.random();
 
+    const cons_id = try c.runtime.agent_id_map.get("Cons");
+    const nil_id = try c.runtime.agent_id_map.get("Nil");
+
     const lst = blk: {
         if (num > 0) {
-            const ag = try c.createAgent(BuiltinNameMap.get("Cons").?);
+            const ag = try c.createAgent(cons_id);
             ag.ports[0] = Value{ .agent = try c.createNumberAgent(.{ .integer = rand.intRangeAtMost(i32, -10000, 10000) }) };
             break :blk ag;
         } else {
-            break :blk try c.createAgent(BuiltinNameMap.get("Nil").?);
+            break :blk try c.createAgent(nil_id);
         }
     };
 
     var node = lst;
     for (1..@as(usize, @intCast(num))) |_| {
-        var new_node = try c.createAgent(BuiltinNameMap.get("Cons").?);
+        var new_node = try c.createAgent(cons_id);
         new_node.ports[0] = Value{ .agent = try c.createNumberAgent(.{ .integer = rand.intRangeAtMost(i32, -10000, 10000) }) };
         node.ports[1] = Value{ .agent = new_node };
         node = new_node;
     }
 
     if (num > 0) {
-        node.ports[1] = Value{ .agent = try c.createAgent(BuiltinNameMap.get("Nil").?) };
+        node.ports[1] = Value{ .agent = try c.createAgent(nil_id) };
     }
 
     const eq = EquationUnnormalized{

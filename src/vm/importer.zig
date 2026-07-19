@@ -70,7 +70,7 @@ pub fn import(self: *Self, path: []const u8, runtime: *Runtime) !void {
             .rule => |rule| {
                 const Diagnostic = Compilation.Diagnostic;
                 var diag: Diagnostic = .{};
-                const compiled_rule = Instruction.compileRule(runtime, rule, &diag) catch |err| {
+                Instruction.compileRule(runtime, rule, &diag) catch |err| {
                     if (Diagnostic.isHandledError(err)) {
                         const message =
                             try diag.getPrettyMessage(
@@ -85,17 +85,6 @@ pub fn import(self: *Self, path: []const u8, runtime: *Runtime) !void {
                         return err;
                     }
                 };
-                if (Config.debug_printing.print_compiled_instructions) {
-                    try Instruction.debugPrintInstruction(runtime, compiled_rule[1]);
-                    const guard_size = 40;
-                    const guard: [guard_size]u8 = comptime @splat('=');
-                    std.debug.print("{s}\n", .{&guard});
-                }
-                if (compiled_rule[0] == .agents) {
-                    try runtime.rule_table.map.put(compiled_rule[0].agents, compiled_rule[1]);
-                } else {
-                    try runtime.wildcard_table.put(compiled_rule[0].wildcard, compiled_rule[1]);
-                }
             },
             .use_stmt => |import_path| {
                 const final_import_path = if (std.fs.path.isAbsolute(import_path)) try gpa.dupe(u8, import_path) else blk: {

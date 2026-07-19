@@ -37,7 +37,7 @@ pub fn main(init: std.process.Init) !void {
     };
     defer res.deinit();
 
-    var filepath: []const u8 = "./tests/list_sorting.in";
+    var filepath: []const u8 = "./tests/conditionals.in";
 
     if (res.args.help != 0) {
         var stdio = std.Io.File.stdin().writer(io, &.{});

@@ -145,7 +145,7 @@ pub const ConditionedRule = struct {
     instructions: CompiledPairs,
 };
 
-const CompiledPairs = []Bytecode;
+const CompiledPairs = []Instruction;
 
 const CompiledTerm = struct {
     reg: RegisterId,
@@ -341,14 +341,7 @@ pub fn compilePairs(
 
     try scope.checkNameUsage(diag);
 
-    const shrinked = shrinked: {
-        const shrinked = try Shrinker.shrinkInstructions(runtime.gpa, list.items);
-        defer runtime.gpa.free(shrinked);
-        const duped = try runtime.arena.dupe(Bytecode, shrinked);
-        break :shrinked duped;
-    };
-
-    return shrinked;
+    return toArenaOwnedSlice(Instruction, &list, runtime.gpa, runtime.arena);
 }
 
 pub fn compileWildcard(
@@ -357,7 +350,7 @@ pub fn compileWildcard(
     name: AST.Node(AST.Object),
     rule_exprs: []AST.RuleExpression,
     diag: *Diagnostic,
-) !CompiledRule {
+) !void {
     const agent_id = try runtime.agent_id_map.get(agent.val.name);
 
     _ = try runtime.agent_arities.get(agent_id, agent.val.portlist.?.len);
@@ -383,13 +376,22 @@ pub fn compileWildcard(
         });
     }
 
-    return CompiledRule{
-        .{ .wildcard = agent_id },
-        try toArenaOwnedSlice(ConditionedRule, &lst, runtime.gpa, runtime.arena),
+    const shrinked = shrinked: {
+        const shrinked = try Shrinker.shrinkInstructions(runtime.gpa, lst.items);
+        const owned_by_arena = try runtime.arena.dupe(Bytecode, shrinked);
+        runtime.gpa.free(shrinked);
+        break :shrinked owned_by_arena;
     };
+
+    try runtime.wildcard_code_table.put(agent_id, shrinked);
+
+    try runtime.wildcard_table.put(
+        agent_id,
+        try toArenaOwnedSlice(ConditionedRule, &lst, runtime.gpa, runtime.arena),
+    );
 }
 
-pub fn compileRule(runtime: *Runtime, rule: AST.Rule, diag: *Diagnostic) !CompiledRule {
+pub fn compileRule(runtime: *Runtime, rule: AST.Rule, diag: *Diagnostic) !void {
     if (rule.lhs.val.portlist == null or rule.rhs.val.portlist == null) {
         // Wildcard rule
         if (rule.lhs.val.portlist) |_| {
@@ -429,8 +431,17 @@ pub fn compileRule(runtime: *Runtime, rule: AST.Rule, diag: *Diagnostic) !Compil
         });
     }
 
-    return CompiledRule{
-        .{ .agents = .{ .lhs = lhs_id, .rhs = rhs_id } },
-        try toArenaOwnedSlice(ConditionedRule, &lst, runtime.gpa, runtime.arena),
+    const shrinked = shrinked: {
+        const shrinked = try Shrinker.shrinkInstructions(runtime.gpa, lst.items);
+        const owned_by_arena = try runtime.arena.dupe(Bytecode, shrinked);
+        runtime.gpa.free(shrinked);
+        break :shrinked owned_by_arena;
     };
+
+    try runtime.code_table.map.put(.{ .lhs = lhs_id, .rhs = rhs_id }, shrinked);
+
+    try runtime.rule_table.put(
+        .{ .lhs = lhs_id, .rhs = rhs_id },
+        try toArenaOwnedSlice(ConditionedRule, &lst, runtime.gpa, runtime.arena),
+    );
 }

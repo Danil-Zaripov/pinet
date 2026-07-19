@@ -101,7 +101,7 @@ pub const ArityMap = struct {
 };
 
 pub const RuleSearchResult = struct {
-    rules: []ConditionedRule,
+    rules: []Instruction.Bytecode,
     tag: Tag,
 
     const Tag = enum {
@@ -114,10 +114,10 @@ pub const RuleSearchResult = struct {
     };
 };
 
-pub const RuleTable = struct {
-    map: std.AutoHashMap(AgentsKey, []ConditionedRule),
+pub const CodeTable = struct {
+    map: std.AutoHashMap(AgentsKey, []Instruction.Bytecode),
 
-    pub fn get(self: *RuleTable, ap: AgentsKey) !RuleSearchResult {
+    pub fn get(self: *CodeTable, ap: AgentsKey) !RuleSearchResult {
         if (self.map.get(ap)) |rules| {
             return .{ .rules = rules, .tag = .normal };
         } else if (self.map.get(.{ .lhs = ap.rhs, .rhs = ap.lhs })) |rules| {
@@ -126,9 +126,9 @@ pub const RuleTable = struct {
             return error.UnknownRule;
         }
     }
-    pub fn init(allocator: std.mem.Allocator) RuleTable {
+    pub fn init(allocator: std.mem.Allocator) CodeTable {
         return .{
-            .map = std.AutoHashMap(AgentsKey, []ConditionedRule).init(allocator),
+            .map = std.AutoHashMap(AgentsKey, []Instruction.Bytecode).init(allocator),
         };
     }
 };
@@ -144,8 +144,11 @@ gpa: std.mem.Allocator,
 
 equation_fetcher: EquationFetcher,
 
-rule_table: RuleTable,
+rule_table: std.AutoHashMap(AgentsKey, []ConditionedRule),
 wildcard_table: std.AutoHashMap(Agent.Id, []ConditionedRule),
+
+code_table: CodeTable,
+wildcard_code_table: std.AutoHashMap(Agent.Id, []Instruction.Bytecode),
 
 /// Importer contains the gpa, provided in .init(...)
 importer: Importer,
@@ -173,8 +176,13 @@ pub fn init(gpa: std.mem.Allocator, page: std.mem.Allocator, main_file: File) !S
         .associated_names = std.StringHashMap(?*Name).init(allocator),
         .equation_fetcher = two_deque_equation_fetcher.equationFetcher(),
         .agent_arities = try ArityMap.init(allocator),
-        .rule_table = RuleTable.init(allocator),
-        .wildcard_table = std.AutoHashMap(Agent.Id, []ConditionedRule).init(allocator),
+
+        .rule_table = .init(allocator),
+        .wildcard_table = .init(allocator),
+
+        .code_table = CodeTable.init(allocator),
+        .wildcard_code_table = std.AutoHashMap(Agent.Id, []Instruction.Bytecode).init(allocator),
+
         .threaded = threaded,
         .io = threaded.io(),
         .importer = .init(gpa),

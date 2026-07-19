@@ -87,7 +87,7 @@ fn evalCondition(c: *Core, lagent: *Agent, ragent: *Agent, instructions: []Condi
                 } else if (lhs == .bool and rhs == .bool) {
                     registers[instr.result] = .{ .bool = switch (op) {
                         .logic_and => lhs.bool and rhs.bool,
-                        .logic_or => lhs.bool and rhs.bool,
+                        .logic_or => lhs.bool or rhs.bool,
                         else => return error.WrongArgument,
                     } };
                 } else {
@@ -141,12 +141,12 @@ pub fn evalEquation(c: *Core, eq: Equation) !void {
     }
 
     // Not builtin
-    const search_result = c.runtime.rule_table.get(.{ .lhs = lagent.id, .rhs = ragent.id }) catch |err| rule_blk: {
+    const search_result = c.runtime.code_table.get(.{ .lhs = lagent.id, .rhs = ragent.id }) catch |err| rule_blk: {
         if (err == error.UnknownRule) {
             // The rule may still be defined as wildcard
-            if (c.runtime.wildcard_table.get(lagent.id)) |wildcard_rule| {
+            if (c.runtime.wildcard_code_table.get(lagent.id)) |wildcard_rule| {
                 break :rule_blk Runtime.RuleSearchResult{ .rules = wildcard_rule, .tag = .wildcard_lhs };
-            } else if (c.runtime.wildcard_table.get(ragent.id)) |wildcard_rule| {
+            } else if (c.runtime.wildcard_code_table.get(ragent.id)) |wildcard_rule| {
                 break :rule_blk Runtime.RuleSearchResult{ .rules = wildcard_rule, .tag = .wildcard_rhs };
             }
 
@@ -170,27 +170,7 @@ pub fn evalEquation(c: *Core, eq: Equation) !void {
             defer if (!wildcarded) c.agent_heap.freeOne(ragent);
 
             const conditioned_rules = search_result.rules;
-            for (conditioned_rules) |conditioned| {
-                if (conditioned.condition) |condition| {
-                    const evaluated = evalCondition(c, lagent, ragent, condition) catch |err| errblk: {
-                        std.debug.print("Caught an error {s}!\n", .{@errorName(err)});
-                        switch (err) {
-                            EvaluationError.BadSecondaryValue => break :errblk false,
-                            // There probably should be some other error handling in case of bad arguments
-                            // but since many things can go badly, we can simply ignore it?
-                            // TODO: research into more constraining conditions
-                            EvaluationError.WrongArgument => break :errblk false,
-                        }
-                    };
-                    if (evaluated) {
-                        try Executioner.execBytecode(c, conditioned.instructions, lagent, ragent, wildcarded);
-                        return;
-                    }
-                } else {
-                    try Executioner.execBytecode(c, conditioned.instructions, lagent, ragent, wildcarded);
-                    return;
-                }
-            }
+            try Executioner.execBytecode(c, conditioned_rules, lagent, ragent, wildcarded);
         },
         .swap => {
             std.mem.swap(*Agent, &lagent, &ragent);
