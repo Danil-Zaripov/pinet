@@ -119,7 +119,7 @@ pub const Eraser = struct {
         defer c.agent_heap.freeOne(agent);
         const ag_arity = c.runtime.agent_arities.map.get(agent.id).?;
         for (0..ag_arity) |idx| {
-            const port = agent.ports[idx].?;
+            const port = agent.ports[idx];
             port_switch: switch (port) {
                 .name => |name| {
                     if (name.port) |name_port| {
@@ -166,7 +166,7 @@ pub fn dupCopy(c: *Core, self: *Agent, ag: *Agent) BuiltinAgentError!void {
             const ag_copy = try _c.createAgent(agent.id);
             const ag_arity = _c.runtime.agent_arities.map.get(agent.id).?;
             for (0..ag_arity) |idx| {
-                const port = agent.ports[idx].?;
+                const port = agent.ports[idx];
                 port_switch: switch (port) {
                     .name => |connected_name| {
                         if (connected_name.port) |connected_thing| {
@@ -195,7 +195,7 @@ pub fn dupCopy(c: *Core, self: *Agent, ag: *Agent) BuiltinAgentError!void {
         pub fn copyNames(_c: *Core, _arity: u8, agent: *Agent, names_map: *std.AutoHashMap(*Name, []*Name), allocator: std.mem.Allocator) !*Agent {
             const ag_arity = _c.runtime.agent_arities.map.get(agent.id).?;
             for (0..ag_arity) |idx| {
-                const port = agent.ports[idx].?;
+                const port = agent.ports[idx];
                 port_switch: switch (port) {
                     .name => |connected_name| {
                         if (connected_name.port) |connected_thing| {
@@ -225,17 +225,17 @@ pub fn dupCopy(c: *Core, self: *Agent, ag: *Agent) BuiltinAgentError!void {
 
     _ = try makeCopy.copyNames(c, arity, ag, &_names_map, _allocator);
 
-    if (self.ports[0].? == .name and self.ports[0].?.name.is_open()) {
-        self.ports[0].?.name.port = Value{ .agent = ag };
+    if (self.ports[0] == .name and self.ports[0].name.is_open()) {
+        self.ports[0].name.port = Value{ .agent = ag };
     } else {
         try c.pushUrgent(EquationUnnormalized{
-            .lhs = self.ports[0].?,
+            .lhs = self.ports[0],
             .rhs = Value{ .agent = ag },
         });
     }
 
     for (1..arity) |port_idx| {
-        const port = self.ports[port_idx].?;
+        const port = self.ports[port_idx];
         const copy = try makeCopy.makeCopy(c, arity, port_idx, ag, &_names_map);
         if (port == .name and port.name.is_open()) {
             port.name.port = Value{ .agent = copy };
@@ -274,8 +274,8 @@ pub fn tuple(c: *Core, self: *Agent, other: *Agent) BuiltinAgentError!void {
 
     for (0..arity) |port_idx| {
         const eq = EquationUnnormalized{
-            .lhs = self.ports[port_idx].?,
-            .rhs = other.ports[port_idx].?,
+            .lhs = self.ports[port_idx],
+            .rhs = other.ports[port_idx],
         };
 
         try c.pushEquation(eq);
@@ -289,7 +289,7 @@ pub fn number(c: *Core, self: *Agent, other: *Agent) BuiltinAgentError!void {
     const sub_id = comptime BuiltinNameMap.get("Sub").?;
     if (other.id != adder_id and other.id != mult_id and other.id != div_id and other.id != sub_id) return BuiltinAgentError.NoRuleSpecified;
 
-    const self_special = self.ports[0].?.special;
+    const self_special = self.ports[0].special;
 
     const getSecondValue = struct {
         pub fn getSecondValue(val: Value, _c: *Core) ?Special {
@@ -299,22 +299,22 @@ pub fn number(c: *Core, self: *Agent, other: *Agent) BuiltinAgentError!void {
                         name.unchain(_c.name_heap);
                         _c.name_heap.freeOne(name);
                         defer _c.agent_heap.freeOne(agent);
-                        return agent.ports[0].?.special;
+                        return agent.ports[0].special;
                     } else {
                         return null;
                     }
                 },
                 .agent => |agent| {
-                    return getSecondValue(agent.ports[0].?, _c);
+                    return getSecondValue(agent.ports[0], _c);
                 },
                 .special => |special| return special,
             }
         }
     }.getSecondValue;
 
-    const sv = getSecondValue(other.ports[1].?, c) orelse {
+    const sv = getSecondValue(other.ports[1], c) orelse {
         // We switch places: self with secondary argument port
-        const port = other.ports[1].?;
+        const port = other.ports[1];
         other.ports[1] = .{ .agent = self };
         const eq = EquationUnnormalized{
             .lhs = .{ .agent = other },
@@ -338,7 +338,7 @@ pub fn number(c: *Core, self: *Agent, other: *Agent) BuiltinAgentError!void {
     ret_ag.ports[0] = Value{ .special = ret };
 
     const eq = EquationUnnormalized{
-        .lhs = other.ports[0].?,
+        .lhs = other.ports[0],
         .rhs = .{ .agent = ret_ag },
     };
     try c.pushUrgent(eq);
@@ -348,7 +348,7 @@ pub fn make_random_list(c: *Core, self: *Agent, other: *Agent) BuiltinAgentError
     const number_id = BuiltinNameMap.get(number_builtin_ident).?;
     if (other.id != number_id) return BuiltinAgentError.NoRuleSpecified;
 
-    const num_special = other.ports[0].?.special;
+    const num_special = other.ports[0].special;
     const num = switch (num_special) {
         .integer => |i| i,
         .float => return BuiltinAgentError.BadSecondaryArgument,
@@ -390,7 +390,7 @@ pub fn make_random_list(c: *Core, self: *Agent, other: *Agent) BuiltinAgentError
     }
 
     const eq = EquationUnnormalized{
-        .lhs = self.ports[0].?,
+        .lhs = self.ports[0],
         .rhs = Value{ .agent = lst },
     };
     try c.pushEquation(eq);

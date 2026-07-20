@@ -23,13 +23,13 @@ pub fn execBytecode(c: *Core, code: []Bytecode, lagent: *Agent, ragent: *Agent, 
                 const larity = c.runtime.agent_arities.map.get(lagent.id).?;
                 var idx: u16 = 0;
                 for (0..larity) |port_idx| {
-                    c.registers[idx] = lagent.ports[port_idx].?;
+                    c.registers[idx] = lagent.ports[port_idx];
                     idx += 1;
                 }
                 if (!wildcarded) {
                     const rarity = c.runtime.agent_arities.map.get(ragent.id).?;
                     for (0..rarity) |port_idx| {
-                        c.registers[idx] = ragent.ports[port_idx].?;
+                        c.registers[idx] = ragent.ports[port_idx];
                         idx += 1;
                     }
                 } else {
@@ -41,13 +41,11 @@ pub fn execBytecode(c: *Core, code: []Bytecode, lagent: *Agent, ragent: *Agent, 
                 c.registers[instr.dest].agent.ports[instr.val.id] = c.registers[instr.src];
             },
             .mk_agent => {
-                const ag = try c.agent_heap.allocOne();
-                ag.* = .{ .id = instr.val.id, .ports = @splat(null) };
-                c.registers[instr.dest] = .{ .agent = ag };
+                c.registers[instr.dest] = .{ .agent = try c.createAgent(instr.val.id) };
             },
             .mk_name => {
                 const name = try c.name_heap.allocOne();
-                name.* = .{ .port = null };
+                name.port = null;
                 c.registers[instr.dest] = .{ .name = name };
             },
             .mk_special_float => {
@@ -65,14 +63,14 @@ pub fn execBytecode(c: *Core, code: []Bytecode, lagent: *Agent, ragent: *Agent, 
             },
             //
             .c_load_port_lhs => {
-                c.condition_registers[instr.dest] = .{ .agent = lagent.ports[instr.src].?.getAgent() orelse {
+                c.condition_registers[instr.dest] = .{ .agent = lagent.ports[instr.src].getAgent() orelse {
                     const fallback: usize = if (instr.val.integer != -1) @intCast(instr.val.integer) else return error.NoFallBack;
                     pc = fallback;
                     continue;
                 } };
             },
             .c_load_port_rhs => {
-                c.condition_registers[instr.dest] = .{ .agent = ragent.ports[instr.src].?.getAgent() orelse {
+                c.condition_registers[instr.dest] = .{ .agent = ragent.ports[instr.src].getAgent() orelse {
                     const fallback: usize = if (instr.val.integer != -1) @intCast(instr.val.integer) else return error.NoFallBack;
                     pc = fallback;
                     continue;
@@ -163,7 +161,7 @@ pub fn execBytecode(c: *Core, code: []Bytecode, lagent: *Agent, ragent: *Agent, 
                 }
             },
             .c_get_special => {
-                c.condition_registers[instr.dest] = .{ .special = c.condition_registers[instr.src].agent.ports[0].?.special };
+                c.condition_registers[instr.dest] = .{ .special = c.condition_registers[instr.src].agent.ports[0].special };
             },
             .c_njump => {
                 if (c.condition_registers[instr.dest] != .bool or !c.condition_registers[instr.dest].bool) {

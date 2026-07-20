@@ -100,8 +100,9 @@ fn getAgentSymbolNested(runtime: *const Runtime, ag: *const Agent, stream: *Buff
     const name = runtime.agent_id_map.findKey(ag.id);
     try stream.write("{s}(", .{name.?});
     {
-        var idx: usize = 0;
-        outer: while (ag.ports[idx]) |port| : (idx += 1) {
+        const arity = runtime.agent_arities.map.get(ag.id).?;
+        outer: for (0..arity) |idx| {
+            const port = ag.ports[idx];
             if (idx != 0) {
                 try stream.write(", ", .{});
             }

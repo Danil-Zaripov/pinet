@@ -45,7 +45,6 @@ runtime: *Runtime,
 pub fn createAgent(c: *Core, id: Agent.Id) !*Agent {
     const ag = try c.agent_heap.allocOne();
     ag.id = id;
-    ag.ports = @splat(null);
     return ag;
 }
 
@@ -140,7 +139,7 @@ pub fn objToValueAgent(
     const arity = try c.runtime.agent_arities.get(agent_id, portlist.len);
     var agent = try c.agent_heap.allocOne();
 
-    agent.* = .{ .id = agent_id, .ports = @splat(null) };
+    agent.* = .{ .id = agent_id };
     {
         var idx: u8 = 0;
         while (idx < arity) : (idx += 1) {
