@@ -11,7 +11,7 @@ const Instruction = Compilation.Instruction;
 const Condition = Compilation.Condition;
 
 const Builtin = @import("builtin.zig");
-const VM = @import("vm.zig");
+const Core = @import("core.zig");
 const Debug = @import("debug");
 
 pub const Config = @import("config");
@@ -22,7 +22,7 @@ const Name = Types.Name;
 const Equation = Types.Equation;
 const Special = Types.Special;
 
-pub fn name_name(vm: *VM, lname: *Name, rname: *Name) !void {
+pub fn name_name(c: *Core, lname: *Name, rname: *Name) !void {
     // TODO: optimise name chaining
 
     Debug.log(.print_interactions, "name - name interaction\n", .{});
@@ -30,14 +30,14 @@ pub fn name_name(vm: *VM, lname: *Name, rname: *Name) !void {
     // Also can this be rewritten to be more linear?
     if (lname.port) |lport| {
         if (rname.port) |rport| {
-            defer vm.name_heap.freeOne(lname);
-            defer vm.name_heap.freeOne(rname);
+            defer c.name_heap.freeOne(lname);
+            defer c.name_heap.freeOne(rname);
 
             const eq = Equation{
                 .lhs = lport,
                 .rhs = rport,
             };
-            try vm.pushEquation(eq);
+            try c.pushEquation(eq);
         } else {
             rname.port = Value{ .name = lname };
         }
@@ -46,19 +46,18 @@ pub fn name_name(vm: *VM, lname: *Name, rname: *Name) !void {
     }
 }
 
-pub fn name_agent(vm: *VM, name: *Name, agent: *Agent) !void {
-    // TODO (KoGora): perf analysis
+pub fn name_agent(c: *Core, name: *Name, agent: *Agent) !void {
     if (Config.debug_printing.print_interactions) {
-        std.debug.print("{s} - name interaction\n", .{vm.runtime.agent_id_map.findKey(agent.id).?});
+        std.debug.print("{s} - name interaction\n", .{c.runtime.agent_id_map.findKey(agent.id).?});
     }
 
     if (name.port) |port| {
-        defer vm.name_heap.freeOne(name);
+        defer c.name_heap.freeOne(name);
         const eq = Equation{
             .lhs = port,
             .rhs = Value{ .agent = agent },
         };
-        try vm.pushUrgent(eq);
+        try c.pushUrgent(eq);
     } else {
         name.port = Value{ .agent = agent };
     }
@@ -74,8 +73,8 @@ const EvaluationError = error{
     WrongArgument,
 };
 
-fn evalCondition(vm: *VM, lagent: *Agent, ragent: *Agent, instructions: []Condition.Instruction) !bool {
-    const registers = &vm.condition_registers;
+fn evalCondition(c: *Core, lagent: *Agent, ragent: *Agent, instructions: []Condition.Instruction) !bool {
+    const registers = &c.condition_registers;
     for (instructions) |instr| {
         switch (instr.tag) {
             .put_port => |port| {
@@ -87,7 +86,7 @@ fn evalCondition(vm: *VM, lagent: *Agent, ragent: *Agent, instructions: []Condit
                             // Will this work everywhere?
                             const unwinded = name.unwind();
                             if (unwinded) |agent| {
-                                name.unchain(vm.name_heap);
+                                name.unchain(c.name_heap);
                                 break :agent agent;
                             } else {
                                 return EvaluationError.BadSecondaryValue;
@@ -148,21 +147,21 @@ fn evalCondition(vm: *VM, lagent: *Agent, ragent: *Agent, instructions: []Condit
     unreachable;
 }
 
-pub fn agent_agent(vm: *VM, _lagent: *Agent, _ragent: *Agent) !void {
+pub fn agent_agent(c: *Core, _lagent: *Agent, _ragent: *Agent) !void {
     var lagent = _lagent;
     var ragent = _ragent;
 
     // TODO (KoGora): perf analysis
     if (Config.debug_printing.print_interactions) {
         std.debug.print("{s} - {s}\n", .{
-            vm.runtime.agent_id_map.findKey(lagent.id).?,
-            vm.runtime.agent_id_map.findKey(ragent.id).?,
+            c.runtime.agent_id_map.findKey(lagent.id).?,
+            c.runtime.agent_id_map.findKey(ragent.id).?,
         });
     }
 
     if (Builtin.isBuiltinAgent(lagent.id)) {
         const handler = Builtin.BuiltinTable.get(lagent.id).?;
-        if (handler(vm, lagent, ragent)) {
+        if (handler(c, lagent, ragent)) {
             return;
         } else |err| {
             if (err != Builtin.BuiltinAgentError.NoRuleSpecified) {
@@ -173,7 +172,7 @@ pub fn agent_agent(vm: *VM, _lagent: *Agent, _ragent: *Agent) !void {
 
     if (Builtin.isBuiltinAgent(ragent.id)) {
         const handler = Builtin.BuiltinTable.get(ragent.id).?;
-        if (handler(vm, ragent, lagent)) {
+        if (handler(c, ragent, lagent)) {
             return;
         } else |err| {
             if (err != Builtin.BuiltinAgentError.NoRuleSpecified) {
@@ -183,18 +182,18 @@ pub fn agent_agent(vm: *VM, _lagent: *Agent, _ragent: *Agent) !void {
     }
 
     // Not builtin
-    const search_result = vm.runtime.rule_table.get(.{ .lhs = lagent.id, .rhs = ragent.id }) catch |err| rule_blk: {
+    const search_result = c.runtime.rule_table.get(.{ .lhs = lagent.id, .rhs = ragent.id }) catch |err| rule_blk: {
         if (err == error.UnknownRule) {
             // The rule may still be defined as wildcard
-            if (vm.runtime.wildcard_table.get(lagent.id)) |wildcard_rule| {
+            if (c.runtime.wildcard_table.get(lagent.id)) |wildcard_rule| {
                 break :rule_blk Runtime.RuleSearchResult{ .rules = wildcard_rule, .tag = .wildcard_lhs };
-            } else if (vm.runtime.wildcard_table.get(ragent.id)) |wildcard_rule| {
+            } else if (c.runtime.wildcard_table.get(ragent.id)) |wildcard_rule| {
                 break :rule_blk Runtime.RuleSearchResult{ .rules = wildcard_rule, .tag = .wildcard_rhs };
             }
 
             std.debug.print("Unknown rule {s} - {s}\n", .{
-                vm.runtime.agent_id_map.findKey(lagent.id).?,
-                vm.runtime.agent_id_map.findKey(ragent.id).?,
+                c.runtime.agent_id_map.findKey(lagent.id).?,
+                c.runtime.agent_id_map.findKey(ragent.id).?,
             });
         }
 
@@ -208,13 +207,13 @@ pub fn agent_agent(vm: *VM, _lagent: *Agent, _ragent: *Agent) !void {
             // We don't free the ragent in case it's wildcarded
             // because it functions like a name and will interact
             // later
-            defer vm.agent_heap.freeOne(lagent);
-            defer if (!wildcarded) vm.agent_heap.freeOne(ragent);
+            defer c.agent_heap.freeOne(lagent);
+            defer if (!wildcarded) c.agent_heap.freeOne(ragent);
 
             const conditioned_rules = search_result.rules;
             for (conditioned_rules) |conditioned| {
                 if (conditioned.condition) |condition| {
-                    const evaluated = evalCondition(vm, lagent, ragent, condition) catch |err| errblk: {
+                    const evaluated = evalCondition(c, lagent, ragent, condition) catch |err| errblk: {
                         std.debug.print("Caught an error {s}!\n", .{@errorName(err)});
                         switch (err) {
                             EvaluationError.BadSecondaryValue => break :errblk false,
@@ -225,11 +224,11 @@ pub fn agent_agent(vm: *VM, _lagent: *Agent, _ragent: *Agent) !void {
                         }
                     };
                     if (evaluated) {
-                        try VM.execInstructions(vm, conditioned.instructions, lagent, ragent, wildcarded);
+                        try Core.execInstructions(c, conditioned.instructions, lagent, ragent, wildcarded);
                         return;
                     }
                 } else {
-                    try VM.execInstructions(vm, conditioned.instructions, lagent, ragent, wildcarded);
+                    try Core.execInstructions(c, conditioned.instructions, lagent, ragent, wildcarded);
                     return;
                 }
             }
@@ -249,15 +248,15 @@ pub fn agent_agent(vm: *VM, _lagent: *Agent, _ragent: *Agent) !void {
     }
 }
 
-pub fn evalEquation(vm: *VM, eq: Equation) !void {
+pub fn evalEquation(c: *Core, eq: Equation) !void {
     switch (eq.lhs) {
         .name => |lname| {
             switch (eq.rhs) {
                 .name => |rname| {
-                    try name_name(vm, lname, rname);
+                    try name_name(c, lname, rname);
                 },
                 .agent => |ragent| {
-                    try name_agent(vm, lname, ragent);
+                    try name_agent(c, lname, ragent);
                 },
                 else => unreachable,
             }
@@ -265,10 +264,10 @@ pub fn evalEquation(vm: *VM, eq: Equation) !void {
         .agent => |lagent| {
             switch (eq.rhs) {
                 .name => |rname| {
-                    try name_agent(vm, rname, lagent);
+                    try name_agent(c, rname, lagent);
                 },
                 .agent => |ragent| {
-                    try agent_agent(vm, lagent, ragent);
+                    try agent_agent(c, lagent, ragent);
                 },
                 else => unreachable,
             }

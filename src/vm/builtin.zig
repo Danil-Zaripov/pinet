@@ -1,6 +1,6 @@
 //! Builtin agents logic.
 const std = @import("std");
-const VM = @import("vm.zig");
+const Core = @import("core.zig");
 const Types = @import("shared_runtime").Types;
 const Printing = @import("printing");
 const AST = @import("ast");
@@ -20,7 +20,7 @@ pub const BuiltinAgentError = error{
     BadSecondaryArgument,
 } || std.mem.Allocator.Error;
 
-const BuiltinSignature = *const fn (*VM, *Agent, *Agent) BuiltinAgentError!void;
+const BuiltinSignature = *const fn (*Core, *Agent, *Agent) BuiltinAgentError!void;
 
 pub var BuiltinTable: std.AutoHashMap(Agent.Id, BuiltinSignature) = undefined;
 
@@ -95,15 +95,15 @@ pub const builtin_agents = [_]BuiltinAgent{
 
 // Add more builtin agents logic here
 
-pub fn exiter(vm: *VM, self: *Agent, other: *Agent) BuiltinAgentError!void {
-    _ = vm;
+pub fn exiter(c: *Core, self: *Agent, other: *Agent) BuiltinAgentError!void {
+    _ = c;
     _ = self;
     _ = other;
     return BuiltinAgentError.Exiter;
 }
 
-pub fn unbuiltin(vm: *VM, self: *Agent, other: *Agent) BuiltinAgentError!void {
-    _ = vm;
+pub fn unbuiltin(c: *Core, self: *Agent, other: *Agent) BuiltinAgentError!void {
+    _ = c;
     _ = self;
     _ = other;
     return BuiltinAgentError.NoRuleSpecified;
@@ -111,27 +111,27 @@ pub fn unbuiltin(vm: *VM, self: *Agent, other: *Agent) BuiltinAgentError!void {
 
 /// Module of functions used by the builtin eraser
 pub const Eraser = struct {
-    fn createEraser(vm: *VM) !*Agent {
-        return vm.createAgent(BuiltinNameMap.get("Eraser").?);
+    fn createEraser(c: *Core) !*Agent {
+        return c.createAgent(BuiltinNameMap.get("Eraser").?);
     }
 
-    pub fn erase(vm: *VM, agent: *Agent) !void {
-        defer vm.agent_heap.freeOne(agent);
-        const ag_arity = vm.runtime.agent_arities.map.get(agent.id).?;
+    pub fn erase(c: *Core, agent: *Agent) !void {
+        defer c.agent_heap.freeOne(agent);
+        const ag_arity = c.runtime.agent_arities.map.get(agent.id).?;
         for (0..ag_arity) |idx| {
             const port = agent.ports[idx].?;
             port_switch: switch (port) {
                 .name => |name| {
                     if (name.port) |name_port| {
-                        defer vm.name_heap.freeOne(name);
+                        defer c.name_heap.freeOne(name);
                         continue :port_switch name_port;
                     } else {
                         // If the name is free yet, create eraser on its port
-                        name.port = Value{ .agent = try createEraser(vm) };
+                        name.port = Value{ .agent = try createEraser(c) };
                     }
                 },
                 .agent => |_agent| {
-                    try erase(vm, _agent);
+                    try erase(c, _agent);
                 },
                 .special => {},
             }
@@ -139,32 +139,32 @@ pub const Eraser = struct {
     }
 };
 
-pub fn eraser(vm: *VM, self: *Agent, other: *Agent) BuiltinAgentError!void {
-    defer vm.agent_heap.freeOne(self);
+pub fn eraser(c: *Core, self: *Agent, other: *Agent) BuiltinAgentError!void {
+    defer c.agent_heap.freeOne(self);
 
     if (Config.debug_printing.print_interactions) {
         std.debug.print("Freeing ", .{});
-        Printing.tryPrint(vm.runtime, vm.runtime.gpa, Value{ .agent = other }) catch {};
+        Printing.tryPrint(c.runtime, c.runtime.gpa, Value{ .agent = other }) catch {};
     }
 
-    try Eraser.erase(vm, other);
+    try Eraser.erase(c, other);
 }
 
-pub fn dupCopy(vm: *VM, self: *Agent, ag: *Agent) BuiltinAgentError!void {
-    defer vm.agent_heap.freeOne(self);
+pub fn dupCopy(c: *Core, self: *Agent, ag: *Agent) BuiltinAgentError!void {
+    defer c.agent_heap.freeOne(self);
     // This allocates :(
 
-    var arena = std.heap.ArenaAllocator.init(vm.runtime.gpa);
+    var arena = std.heap.ArenaAllocator.init(c.runtime.gpa);
     defer arena.deinit();
     const _allocator = arena.allocator();
 
-    const arity = vm.runtime.agent_arities.map.get(self.id).?;
+    const arity = c.runtime.agent_arities.map.get(self.id).?;
     var _names_map = std.AutoHashMap(*Name, []*Name).init(_allocator);
 
     const makeCopy = struct {
-        pub fn makeCopy(_vm: *VM, _arity: u8, port_idx: usize, agent: *Agent, names_map: *std.AutoHashMap(*Name, []*Name)) !*Agent {
-            const ag_copy = try _vm.createAgent(agent.id);
-            const ag_arity = _vm.runtime.agent_arities.map.get(agent.id).?;
+        pub fn makeCopy(_c: *Core, _arity: u8, port_idx: usize, agent: *Agent, names_map: *std.AutoHashMap(*Name, []*Name)) !*Agent {
+            const ag_copy = try _c.createAgent(agent.id);
+            const ag_arity = _c.runtime.agent_arities.map.get(agent.id).?;
             for (0..ag_arity) |idx| {
                 const port = agent.ports[idx].?;
                 port_switch: switch (port) {
@@ -172,18 +172,18 @@ pub fn dupCopy(vm: *VM, self: *Agent, ag: *Agent) BuiltinAgentError!void {
                         if (connected_name.port) |connected_thing| {
                             // If the name has a port then we skip the original name and
                             // go straight to its port
-                            defer _vm.name_heap.freeOne(connected_name);
+                            defer _c.name_heap.freeOne(connected_name);
                             continue :port_switch connected_thing;
                         } else {
                             std.debug.print("Dup to name\n", .{});
                             const names = names_map.get(connected_name).?;
-                            names[port_idx] = try _vm.name_heap.allocOne();
+                            names[port_idx] = try _c.name_heap.allocOne();
                             ag_copy.ports[idx] = Value{ .name = names[port_idx] };
                             names[port_idx].port = Value{ .agent = ag_copy };
                         }
                     },
                     .agent => |connected_agent| {
-                        ag_copy.ports[idx] = Value{ .agent = try makeCopy(_vm, _arity, port_idx, connected_agent, names_map) };
+                        ag_copy.ports[idx] = Value{ .agent = try makeCopy(_c, _arity, port_idx, connected_agent, names_map) };
                     },
                     .special => |special| {
                         ag_copy.ports[idx] = Value{ .special = special };
@@ -192,8 +192,8 @@ pub fn dupCopy(vm: *VM, self: *Agent, ag: *Agent) BuiltinAgentError!void {
             }
             return ag_copy;
         }
-        pub fn copyNames(_vm: *VM, _arity: u8, agent: *Agent, names_map: *std.AutoHashMap(*Name, []*Name), allocator: std.mem.Allocator) !*Agent {
-            const ag_arity = _vm.runtime.agent_arities.map.get(agent.id).?;
+        pub fn copyNames(_c: *Core, _arity: u8, agent: *Agent, names_map: *std.AutoHashMap(*Name, []*Name), allocator: std.mem.Allocator) !*Agent {
+            const ag_arity = _c.runtime.agent_arities.map.get(agent.id).?;
             for (0..ag_arity) |idx| {
                 const port = agent.ports[idx].?;
                 port_switch: switch (port) {
@@ -201,12 +201,12 @@ pub fn dupCopy(vm: *VM, self: *Agent, ag: *Agent) BuiltinAgentError!void {
                         if (connected_name.port) |connected_thing| {
                             // If the name has a port then we skip the original name and
                             // go straight to its port
-                            defer _vm.name_heap.freeOne(connected_name);
+                            defer _c.name_heap.freeOne(connected_name);
                             continue :port_switch connected_thing;
                         } else {
                             std.debug.print("Dup to name\n", .{});
                             const names = try allocator.alloc(*Name, _arity);
-                            const new_name = try _vm.name_heap.allocOne();
+                            const new_name = try _c.name_heap.allocOne();
                             try names_map.put(new_name, names);
                             names[0] = connected_name;
                             agent.ports[idx] = Value{ .name = new_name };
@@ -214,7 +214,7 @@ pub fn dupCopy(vm: *VM, self: *Agent, ag: *Agent) BuiltinAgentError!void {
                         }
                     },
                     .agent => |connected_agent| {
-                        agent.ports[idx] = Value{ .agent = try copyNames(_vm, _arity, connected_agent, names_map, allocator) };
+                        agent.ports[idx] = Value{ .agent = try copyNames(_c, _arity, connected_agent, names_map, allocator) };
                     },
                     .special => {},
                 }
@@ -223,12 +223,12 @@ pub fn dupCopy(vm: *VM, self: *Agent, ag: *Agent) BuiltinAgentError!void {
         }
     };
 
-    _ = try makeCopy.copyNames(vm, arity, ag, &_names_map, _allocator);
+    _ = try makeCopy.copyNames(c, arity, ag, &_names_map, _allocator);
 
     if (self.ports[0].? == .name and self.ports[0].?.name.is_open()) {
         self.ports[0].?.name.port = Value{ .agent = ag };
     } else {
-        try vm.pushUrgent(Equation{
+        try c.pushUrgent(Equation{
             .lhs = self.ports[0].?,
             .rhs = Value{ .agent = ag },
         });
@@ -236,7 +236,7 @@ pub fn dupCopy(vm: *VM, self: *Agent, ag: *Agent) BuiltinAgentError!void {
 
     for (1..arity) |port_idx| {
         const port = self.ports[port_idx].?;
-        const copy = try makeCopy.makeCopy(vm, arity, port_idx, ag, &_names_map);
+        const copy = try makeCopy.makeCopy(c, arity, port_idx, ag, &_names_map);
         if (port == .name and port.name.is_open()) {
             port.name.port = Value{ .agent = copy };
         } else {
@@ -244,13 +244,13 @@ pub fn dupCopy(vm: *VM, self: *Agent, ag: *Agent) BuiltinAgentError!void {
                 .lhs = port,
                 .rhs = Value{ .agent = copy },
             };
-            try vm.pushUrgent(eq);
+            try c.pushUrgent(eq);
         }
     }
 
     var it = _names_map.iterator();
     while (it.next()) |kv| {
-        const dup_ag = try vm.createAgent(self.id);
+        const dup_ag = try c.createAgent(self.id);
         var port_idx: Agent.Arity = 1;
         while (port_idx < arity) : (port_idx += 1) {
             dup_ag.ports[port_idx] = Value{ .name = kv.value_ptr.*[port_idx] };
@@ -260,17 +260,17 @@ pub fn dupCopy(vm: *VM, self: *Agent, ag: *Agent) BuiltinAgentError!void {
             .lhs = Value{ .name = kv.value_ptr.*[0] },
             .rhs = Value{ .agent = dup_ag },
         };
-        try vm.pushUrgent(eq);
+        try c.pushUrgent(eq);
     }
 }
 
-pub fn tuple(vm: *VM, self: *Agent, other: *Agent) BuiltinAgentError!void {
+pub fn tuple(c: *Core, self: *Agent, other: *Agent) BuiltinAgentError!void {
     if (self.id != other.id) {
         return BuiltinAgentError.NoRuleSpecified;
     }
-    defer vm.agent_heap.freeOne(self);
-    defer vm.agent_heap.freeOne(other);
-    const arity = vm.runtime.agent_arities.map.get(self.id).?;
+    defer c.agent_heap.freeOne(self);
+    defer c.agent_heap.freeOne(other);
+    const arity = c.runtime.agent_arities.map.get(self.id).?;
 
     for (0..arity) |port_idx| {
         const eq = Equation{
@@ -278,11 +278,11 @@ pub fn tuple(vm: *VM, self: *Agent, other: *Agent) BuiltinAgentError!void {
             .rhs = other.ports[port_idx].?,
         };
 
-        try vm.pushEquation(eq);
+        try c.pushEquation(eq);
     }
 }
 
-pub fn number(vm: *VM, self: *Agent, other: *Agent) BuiltinAgentError!void {
+pub fn number(c: *Core, self: *Agent, other: *Agent) BuiltinAgentError!void {
     const adder_id = comptime BuiltinNameMap.get("Add").?;
     const mult_id = comptime BuiltinNameMap.get("Mul").?;
     const div_id = comptime BuiltinNameMap.get("Div").?;
@@ -292,27 +292,27 @@ pub fn number(vm: *VM, self: *Agent, other: *Agent) BuiltinAgentError!void {
     const self_special = self.ports[0].?.special;
 
     const getSecondValue = struct {
-        pub fn getSecondValue(val: Value, _vm: *VM) ?Special {
+        pub fn getSecondValue(val: Value, _c: *Core) ?Special {
             switch (val) {
                 .name => |name| {
                     if (name.unwind()) |agent| {
-                        name.unchain(_vm.name_heap);
-                        _vm.name_heap.freeOne(name);
-                        defer _vm.agent_heap.freeOne(agent);
+                        name.unchain(_c.name_heap);
+                        _c.name_heap.freeOne(name);
+                        defer _c.agent_heap.freeOne(agent);
                         return agent.ports[0].?.special;
                     } else {
                         return null;
                     }
                 },
                 .agent => |agent| {
-                    return getSecondValue(agent.ports[0].?, _vm);
+                    return getSecondValue(agent.ports[0].?, _c);
                 },
                 .special => |special| return special,
             }
         }
     }.getSecondValue;
 
-    const sv = getSecondValue(other.ports[1].?, vm) orelse {
+    const sv = getSecondValue(other.ports[1].?, c) orelse {
         // We switch places: self with secondary argument port
         const port = other.ports[1].?;
         other.ports[1] = .{ .agent = self };
@@ -320,11 +320,11 @@ pub fn number(vm: *VM, self: *Agent, other: *Agent) BuiltinAgentError!void {
             .lhs = .{ .agent = other },
             .rhs = port,
         };
-        try vm.pushEquation(eq);
+        try c.pushEquation(eq);
         return;
     };
-    defer vm.agent_heap.freeOne(self);
-    defer vm.agent_heap.freeOne(other);
+    defer c.agent_heap.freeOne(self);
+    defer c.agent_heap.freeOne(other);
 
     const ret = switch (other.id) {
         adder_id => Special.add(self_special, sv),
@@ -334,17 +334,17 @@ pub fn number(vm: *VM, self: *Agent, other: *Agent) BuiltinAgentError!void {
         else => unreachable,
     };
 
-    const ret_ag = try vm.createAgent(self.id);
+    const ret_ag = try c.createAgent(self.id);
     ret_ag.ports[0] = Value{ .special = ret };
 
     const eq = Equation{
         .lhs = other.ports[0].?,
         .rhs = .{ .agent = ret_ag },
     };
-    try vm.pushUrgent(eq);
+    try c.pushUrgent(eq);
 }
 
-pub fn make_random_list(vm: *VM, self: *Agent, other: *Agent) BuiltinAgentError!void {
+pub fn make_random_list(c: *Core, self: *Agent, other: *Agent) BuiltinAgentError!void {
     const number_id = BuiltinNameMap.get(number_builtin_ident).?;
     if (other.id != number_id) return BuiltinAgentError.NoRuleSpecified;
 
@@ -354,41 +354,41 @@ pub fn make_random_list(vm: *VM, self: *Agent, other: *Agent) BuiltinAgentError!
         .float => return BuiltinAgentError.BadSecondaryArgument,
     };
 
-    defer vm.agent_heap.freeOne(self);
-    defer vm.agent_heap.freeOne(other);
+    defer c.agent_heap.freeOne(self);
+    defer c.agent_heap.freeOne(other);
 
     var prng: std.Random.DefaultPrng = .init(blk: {
         var buffer: [8]u8 = undefined;
-        vm.runtime.io.random(buffer[0..]);
+        c.runtime.io.random(buffer[0..]);
         break :blk std.mem.readInt(u64, buffer[0..], .native);
     });
     const rand = prng.random();
 
     const lst = blk: {
         if (num > 0) {
-            const ag = try vm.createAgent(BuiltinNameMap.get("Cons").?);
-            ag.ports[0] = Value{ .agent = try vm.createNumberAgent(.{ .integer = rand.intRangeAtMost(i32, -10000, 10000) }) };
+            const ag = try c.createAgent(BuiltinNameMap.get("Cons").?);
+            ag.ports[0] = Value{ .agent = try c.createNumberAgent(.{ .integer = rand.intRangeAtMost(i32, -10000, 10000) }) };
             break :blk ag;
         } else {
-            break :blk try vm.createAgent(BuiltinNameMap.get("Nil").?);
+            break :blk try c.createAgent(BuiltinNameMap.get("Nil").?);
         }
     };
 
     var node = lst;
     for (1..@as(usize, @intCast(num))) |_| {
-        var new_node = try vm.createAgent(BuiltinNameMap.get("Cons").?);
-        new_node.ports[0] = Value{ .agent = try vm.createNumberAgent(.{ .integer = rand.intRangeAtMost(i32, -10000, 10000) }) };
+        var new_node = try c.createAgent(BuiltinNameMap.get("Cons").?);
+        new_node.ports[0] = Value{ .agent = try c.createNumberAgent(.{ .integer = rand.intRangeAtMost(i32, -10000, 10000) }) };
         node.ports[1] = Value{ .agent = new_node };
         node = new_node;
     }
 
     if (num > 0) {
-        node.ports[1] = Value{ .agent = try vm.createAgent(BuiltinNameMap.get("Nil").?) };
+        node.ports[1] = Value{ .agent = try c.createAgent(BuiltinNameMap.get("Nil").?) };
     }
 
     const eq = Equation{
         .lhs = self.ports[0].?,
         .rhs = Value{ .agent = lst },
     };
-    try vm.pushEquation(eq);
+    try c.pushEquation(eq);
 }

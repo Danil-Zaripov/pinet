@@ -16,7 +16,8 @@ const help =
 ;
 const params = clap.parseParamsComptime(help);
 
-const default_heap_size: usize = 1024;
+const DEFAULT_HEAP_SIZE: usize = 1024;
+const DEFAULT_CORES_NUM: usize = 1;
 
 // TODO: make it less cramped
 pub fn main(init: std.process.Init) !void {
@@ -43,6 +44,7 @@ pub fn main(init: std.process.Init) !void {
         try stdio.interface.print("{s}", .{help});
         return;
     }
+
     if (res.args.threads) |n|
         std.debug.print("you specified -t {}, but it is not yet developed.\n", .{n});
     if (res.args.filepath) |fp| {
@@ -50,7 +52,6 @@ pub fn main(init: std.process.Init) !void {
     } else {
         std.debug.print("File not specified, executing {s}\nConsider using \"--help\"\n", .{filepath});
     }
-    const heap_size = res.args.@"heap-size" orelse default_heap_size;
 
     const contents = try Io.Dir.readFileAllocOptions(
         Io.Dir.cwd(),
@@ -83,14 +84,23 @@ pub fn main(init: std.process.Init) !void {
         }
         return err;
     };
+
     var runtime = try SharedRuntime.init(gpa, std.heap.page_allocator, main_file);
     defer runtime.deinit();
-    var vm = try VM.init(&runtime, heap_size);
+
+    const vm_cfg: VM.Config = .{
+        .heap_size = res.args.@"heap-size" orelse DEFAULT_HEAP_SIZE,
+        .cores_num = DEFAULT_CORES_NUM,
+    };
+
+    var vm = try VM.init(&runtime, vm_cfg);
     defer vm.deinit();
+
     vm.runProgram(program) catch |err| {
         if (err == error.CompilationError) {
             std.process.exit(1);
         }
+
         return err;
     };
 }
