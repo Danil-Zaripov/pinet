@@ -117,7 +117,7 @@ pub const Eraser = struct {
 
     pub fn erase(c: *Core, agent: *Agent) !void {
         defer c.agent_heap.freeOne(agent);
-        const ag_arity = c.runtime.agent_arities.map.get(agent.id).?;
+        const ag_arity = c.runtime.agent_arities.map.items[agent.id];
         for (0..ag_arity) |idx| {
             const port = agent.ports[idx];
             port_switch: switch (port) {
@@ -158,13 +158,13 @@ pub fn dupCopy(c: *Core, self: *Agent, ag: *Agent) BuiltinAgentError!void {
     defer arena.deinit();
     const _allocator = arena.allocator();
 
-    const arity = c.runtime.agent_arities.map.get(self.id).?;
+    const arity = c.runtime.agent_arities.map.items[self.id];
     var _names_map = std.AutoHashMap(*Name, []*Name).init(_allocator);
 
     const makeCopy = struct {
         pub fn makeCopy(_c: *Core, _arity: u8, port_idx: usize, agent: *Agent, names_map: *std.AutoHashMap(*Name, []*Name)) !*Agent {
             const ag_copy = try _c.createAgent(agent.id);
-            const ag_arity = _c.runtime.agent_arities.map.get(agent.id).?;
+            const ag_arity = _c.runtime.agent_arities.map.items[agent.id];
             for (0..ag_arity) |idx| {
                 const port = agent.ports[idx];
                 port_switch: switch (port) {
@@ -193,7 +193,7 @@ pub fn dupCopy(c: *Core, self: *Agent, ag: *Agent) BuiltinAgentError!void {
             return ag_copy;
         }
         pub fn copyNames(_c: *Core, _arity: u8, agent: *Agent, names_map: *std.AutoHashMap(*Name, []*Name), allocator: std.mem.Allocator) !*Agent {
-            const ag_arity = _c.runtime.agent_arities.map.get(agent.id).?;
+            const ag_arity = _c.runtime.agent_arities.map.items[agent.id];
             for (0..ag_arity) |idx| {
                 const port = agent.ports[idx];
                 port_switch: switch (port) {
@@ -270,7 +270,7 @@ pub fn tuple(c: *Core, self: *Agent, other: *Agent) BuiltinAgentError!void {
     }
     defer c.agent_heap.freeOne(self);
     defer c.agent_heap.freeOne(other);
-    const arity = c.runtime.agent_arities.map.get(self.id).?;
+    const arity = c.runtime.agent_arities.map.items[self.id];
 
     for (0..arity) |port_idx| {
         const eq = EquationUnnormalized{

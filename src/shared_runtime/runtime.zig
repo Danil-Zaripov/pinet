@@ -74,31 +74,44 @@ pub const IdCountingHashMap = struct {
 };
 
 pub const ArityMap = struct {
-    map: std.AutoHashMap(Agent.Id, Agent.Arity),
+    map: std.ArrayList(Agent.Arity),
+    gpa: std.mem.Allocator,
 
+    /// This function should be called when in init state: rule compilation or active pair initialization.
+    /// Direct access only when executing instructions.
     pub fn get(self: *ArityMap, id: Agent.Id, port_count: usize) !Agent.Arity {
-        if (self.map.get(id)) |arity| {
+        if (self.map.items.len > id) {
+            const arity = self.map.items[id];
             if (arity != @as(u8, @intCast(port_count))) {
                 return error.ArityMismatch;
             }
             return arity;
         } else {
             const arity: u8 = @intCast(port_count);
-            try self.map.put(id, arity);
-            return arity;
+            if (self.map.items.len == id) {
+                try self.map.append(self.gpa, arity);
+                return arity;
+            } else {
+                unreachable;
+            }
         }
     }
 
-    pub fn init(allocator: std.mem.Allocator) !ArityMap {
-        var map = std.AutoHashMap(Agent.Id, Agent.Arity).init(allocator);
+    pub fn init(gpa: std.mem.Allocator) !ArityMap {
+        var map = try std.ArrayList(Agent.Arity).initCapacity(gpa, Builtin.builtin_agents.len);
 
         for (Builtin.builtin_agents) |builtin_ag| {
-            try map.put(Builtin.BuiltinNameMap.get(builtin_ag.name).?, builtin_ag.arity);
+            try map.append(gpa, builtin_ag.arity);
         }
 
         return .{
             .map = map,
+            .gpa = gpa,
         };
+    }
+
+    pub fn deinit(self: *ArityMap) void {
+        self.map.deinit(self.gpa);
     }
 };
 
@@ -194,6 +207,9 @@ pub fn init(gpa: std.mem.Allocator, page: std.mem.Allocator, main_file: File) !S
 
 pub fn deinit(self: *Self) void {
     Builtin.deinit();
+
+    self.agent_arities.deinit();
+
     self.threaded.deinit();
     self.gpa.destroy(self.threaded);
 

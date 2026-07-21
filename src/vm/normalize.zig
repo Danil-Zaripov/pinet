@@ -45,7 +45,7 @@ fn name_agent(c: *Core, name: *Name, agent: *Agent) !?Equation {
     return null;
 }
 
-pub fn normalizeEquation(c: *Core, eq: EquationUnnormalized) !?Equation {
+pub inline fn normalizeEquation(c: *Core, eq: EquationUnnormalized) !?Equation {
     switch (eq.lhs) {
         .name => |lname| {
             switch (eq.rhs) {

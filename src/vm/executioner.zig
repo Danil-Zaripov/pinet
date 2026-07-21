@@ -89,14 +89,14 @@ fn end(ctx: *ExecContext) ExecutionError!void {
 }
 
 fn load_arguments(ctx: *ExecContext) ExecutionError!void {
-    const larity = ctx.c.runtime.agent_arities.map.get(ctx.lagent.id).?;
+    const larity = ctx.c.runtime.agent_arities.map.items[ctx.lagent.id];
     var idx: u16 = 0;
     for (0..larity) |port_idx| {
         ctx.c.registers[idx] = ctx.lagent.ports[port_idx];
         idx += 1;
     }
     if (!ctx.wildcarded) {
-        const rarity = ctx.c.runtime.agent_arities.map.get(ctx.ragent.id).?;
+        const rarity = ctx.c.runtime.agent_arities.map.items[ctx.ragent.id];
         for (0..rarity) |port_idx| {
             ctx.c.registers[idx] = ctx.ragent.ports[port_idx];
             idx += 1;
