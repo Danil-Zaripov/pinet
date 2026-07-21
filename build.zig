@@ -115,7 +115,7 @@ pub fn build(b: *std.Build) void {
             .imports = submodules,
         }),
         // To use llvm debugger:
-        // .use_llvm = true,
+        .use_llvm = true,
     });
 
     // for perf

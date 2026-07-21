@@ -7,6 +7,7 @@ const std = @import("std");
 pub const Builtin = @import("builtin.zig");
 pub const Interaction = @import("interactions.zig");
 pub const Importer = @import("importer.zig");
+pub const executioner = @import("executioner.zig");
 
 const AST = @import("ast");
 const Lexer = AST.Lexer;

@@ -382,8 +382,9 @@ pub fn compileWildcard(
         runtime.gpa.free(shrinked);
         break :shrinked owned_by_arena;
     };
+    const dispatched = try Runtime.generateDispatch(runtime.arena, shrinked);
 
-    try runtime.wildcard_code_table.put(agent_id, shrinked);
+    try runtime.wildcard_code_table.put(agent_id, dispatched);
 
     try runtime.wildcard_table.put(
         agent_id,
@@ -438,7 +439,9 @@ pub fn compileRule(runtime: *Runtime, rule: AST.Rule, diag: *Diagnostic) !void {
         break :shrinked owned_by_arena;
     };
 
-    try runtime.code_table.map.put(.{ .lhs = lhs_id, .rhs = rhs_id }, shrinked);
+    const dispatched = try Runtime.generateDispatch(runtime.arena, shrinked);
+
+    try runtime.code_table.map.put(.{ .lhs = lhs_id, .rhs = rhs_id }, dispatched);
 
     try runtime.rule_table.put(
         .{ .lhs = lhs_id, .rhs = rhs_id },

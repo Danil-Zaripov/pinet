@@ -170,7 +170,15 @@ pub fn evalEquation(c: *Core, eq: Equation) !void {
             defer if (!wildcarded) c.agent_heap.freeOne(ragent);
 
             const conditioned_rules = search_result.rules;
-            try Executioner.execBytecode(c, conditioned_rules, lagent, ragent, wildcarded);
+            var ctx: Executioner.ExecContext = .{
+                .c = c,
+                .code = conditioned_rules,
+                .lagent = lagent,
+                .ragent = ragent,
+                .wildcarded = wildcarded,
+                .pc = 0,
+            };
+            try @call(.auto, conditioned_rules[0].handler, .{&ctx});
         },
         .swap => {
             std.mem.swap(*Agent, &lagent, &ragent);

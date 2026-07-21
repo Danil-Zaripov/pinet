@@ -28,6 +28,7 @@ pub const Bytecode = packed struct(u64) {
     pub const Opcode = enum(u8) {
         begin_block,
         end_block,
+        o_return,
 
         load_arguments,
         mk_agent,
@@ -185,6 +186,7 @@ pub fn shrinkInstructions(gpa: std.mem.Allocator, rules: []Instruction.Condition
         try list.append(gpa, .{ .opcode = .end_block });
     }
 
+    try list.append(gpa, .{ .opcode = .o_return });
     // fallbacks:
     {
         var idx: i32 = @as(i32, @intCast(list.items.len)) - 1;

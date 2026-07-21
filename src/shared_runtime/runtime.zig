@@ -12,6 +12,8 @@ const Instruction = @import("compilation").Instruction;
 const VM = @import("vm");
 const Builtin = VM.Builtin;
 const Importer = VM.Importer;
+pub const DispatchingInstruction = VM.Executioner.DispatchingInstruction;
+pub const generateDispatch = VM.Executioner.generateDispatch;
 const Token = @import("ast").Lexer.Token;
 const Debug = @import("debug");
 
@@ -101,7 +103,7 @@ pub const ArityMap = struct {
 };
 
 pub const RuleSearchResult = struct {
-    rules: []Instruction.Bytecode,
+    rules: [*]DispatchingInstruction,
     tag: Tag,
 
     const Tag = enum {
@@ -115,7 +117,7 @@ pub const RuleSearchResult = struct {
 };
 
 pub const CodeTable = struct {
-    map: std.AutoHashMap(AgentsKey, []Instruction.Bytecode),
+    map: std.AutoHashMap(AgentsKey, [*]DispatchingInstruction),
 
     pub fn get(self: *CodeTable, ap: AgentsKey) !RuleSearchResult {
         if (self.map.get(ap)) |rules| {
@@ -128,7 +130,7 @@ pub const CodeTable = struct {
     }
     pub fn init(allocator: std.mem.Allocator) CodeTable {
         return .{
-            .map = std.AutoHashMap(AgentsKey, []Instruction.Bytecode).init(allocator),
+            .map = std.AutoHashMap(AgentsKey, [*]DispatchingInstruction).init(allocator),
         };
     }
 };
@@ -148,7 +150,7 @@ rule_table: std.AutoHashMap(AgentsKey, []ConditionedRule),
 wildcard_table: std.AutoHashMap(Agent.Id, []ConditionedRule),
 
 code_table: CodeTable,
-wildcard_code_table: std.AutoHashMap(Agent.Id, []Instruction.Bytecode),
+wildcard_code_table: std.AutoHashMap(Agent.Id, [*]DispatchingInstruction),
 
 /// Importer contains the gpa, provided in .init(...)
 importer: Importer,
@@ -181,7 +183,7 @@ pub fn init(gpa: std.mem.Allocator, page: std.mem.Allocator, main_file: File) !S
         .wildcard_table = .init(allocator),
 
         .code_table = CodeTable.init(allocator),
-        .wildcard_code_table = std.AutoHashMap(Agent.Id, []Instruction.Bytecode).init(allocator),
+        .wildcard_code_table = std.AutoHashMap(Agent.Id, [*]DispatchingInstruction).init(allocator),
 
         .threaded = threaded,
         .io = threaded.io(),
