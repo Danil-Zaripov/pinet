@@ -9,11 +9,10 @@ pub const Memory = @import("memory.zig");
 pub const EquationFetcher = @import("equation_fetcher.zig");
 
 const Instruction = @import("compilation").Instruction;
+const Bytecode = Instruction.Bytecode;
 const VM = @import("vm");
 const Builtin = VM.Builtin;
 const Importer = VM.Importer;
-pub const DispatchingInstruction = VM.Executioner.DispatchingInstruction;
-pub const generateDispatch = VM.Executioner.generateDispatch;
 const Token = @import("ast").Lexer.Token;
 const Debug = @import("debug");
 
@@ -116,7 +115,7 @@ pub const ArityMap = struct {
 };
 
 pub const RuleSearchResult = struct {
-    rules: [*]DispatchingInstruction,
+    rules: []Bytecode,
     tag: Tag,
 
     const Tag = enum {
@@ -130,7 +129,7 @@ pub const RuleSearchResult = struct {
 };
 
 pub const CodeTable = struct {
-    map: std.AutoHashMap(AgentsKey, [*]DispatchingInstruction),
+    map: std.AutoHashMap(AgentsKey, []Bytecode),
 
     pub fn get(self: *CodeTable, ap: AgentsKey) !RuleSearchResult {
         if (self.map.get(ap)) |rules| {
@@ -143,7 +142,7 @@ pub const CodeTable = struct {
     }
     pub fn init(allocator: std.mem.Allocator) CodeTable {
         return .{
-            .map = std.AutoHashMap(AgentsKey, [*]DispatchingInstruction).init(allocator),
+            .map = std.AutoHashMap(AgentsKey, []Bytecode).init(allocator),
         };
     }
 };
@@ -163,7 +162,7 @@ rule_table: std.AutoHashMap(AgentsKey, []ConditionedRule),
 wildcard_table: std.AutoHashMap(Agent.Id, []ConditionedRule),
 
 code_table: CodeTable,
-wildcard_code_table: std.AutoHashMap(Agent.Id, [*]DispatchingInstruction),
+wildcard_code_table: std.AutoHashMap(Agent.Id, []Bytecode),
 
 /// Importer contains the gpa, provided in .init(...)
 importer: Importer,
@@ -196,7 +195,7 @@ pub fn init(gpa: std.mem.Allocator, page: std.mem.Allocator, main_file: File) !S
         .wildcard_table = .init(allocator),
 
         .code_table = CodeTable.init(allocator),
-        .wildcard_code_table = std.AutoHashMap(Agent.Id, [*]DispatchingInstruction).init(allocator),
+        .wildcard_code_table = std.AutoHashMap(Agent.Id, []Bytecode).init(allocator),
 
         .threaded = threaded,
         .io = threaded.io(),

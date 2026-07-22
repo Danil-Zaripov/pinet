@@ -7,6 +7,7 @@ pub const Bytecode = packed struct(u64) {
     opcode: Opcode = undefined,
     src: u8 = undefined,
     dest: u8 = undefined,
+    _unused: u8 = undefined,
 
     val: packed union {
         id: u32,
@@ -22,8 +23,6 @@ pub const Bytecode = packed struct(u64) {
             tag: Condition.Op.Unary,
         },
     } = undefined,
-
-    _unused: u8 = undefined,
 
     pub const Opcode = enum(u8) {
         begin_block,

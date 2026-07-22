@@ -178,7 +178,7 @@ pub fn evalEquation(c: *Core, eq: Equation) !void {
                 .wildcarded = wildcarded,
                 .pc = 0,
             };
-            try @call(.auto, conditioned_rules[0].handler, .{&ctx});
+            try Executioner.execBytecode(&ctx);
         },
         .swap => {
             std.mem.swap(*Agent, &lagent, &ragent);
