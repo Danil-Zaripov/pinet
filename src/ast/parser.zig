@@ -396,7 +396,7 @@ fn parsePairs(self: *Parser) ![]AST.Node(AST.ActivePair) {
     }
 
     objtoken: switch (self.peek().tag) {
-        .identifier => {
+        .identifier, .lparen, .numeric_literal => {
             const lhs = try self.parseObject();
             const tilde = self.advance();
             try self.expectTag(.tilde, &tilde);
@@ -410,7 +410,10 @@ fn parsePairs(self: *Parser) ![]AST.Node(AST.ActivePair) {
             }
         },
         else => {
-            self.unexpected_token(.identifier, &self.peek());
+            self.err = .{
+                .tag = .expected_object,
+                .token = self.peek(),
+            };
             return Error.ErrorDuringParsing;
         },
     }

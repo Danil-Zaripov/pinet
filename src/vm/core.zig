@@ -41,6 +41,12 @@ condition_registers: [number_of_registers]Condition.Register.CondValue,
 
 runtime: *Runtime,
 
+pub fn createEmptyName(c: *Core) !*Name {
+    const name = try c.name_heap.allocOne();
+    name.port = null;
+    return name;
+}
+
 pub fn createAgent(c: *Core, id: Agent.Id) !*Agent {
     const ag = try c.agent_heap.allocOne();
     ag.id = id;

@@ -35,6 +35,8 @@ pub fn import(self: *Self, path: []const u8, runtime: *Runtime) !void {
         return;
     }
 
+    var stderr = std.Io.File.stderr().writerStreaming(runtime.io, &.{});
+
     const contents = try std.Io.Dir.readFileAllocOptions(
         std.Io.Dir.cwd(),
         runtime.io,
@@ -65,6 +67,9 @@ pub fn import(self: *Self, path: []const u8, runtime: *Runtime) !void {
         }
         return err;
     };
+
+    var non_rule_stmt: bool = false;
+
     for (program.statements) |statement| {
         switch (statement.val) {
             .rule => |rule| {
@@ -107,9 +112,12 @@ pub fn import(self: *Self, path: []const u8, runtime: *Runtime) !void {
                 try import(self, final_import_path, runtime);
             },
             else => {
-                std.debug.print("Found non-rule statement when importing {s}. It will not be executed.", .{resolved_path});
+                non_rule_stmt = true;
             },
         }
+    }
+    if (non_rule_stmt) {
+        try stderr.interface.print("Found non-rule statements when importing {s}. They will not be executed.\n", .{resolved_path});
     }
 }
 

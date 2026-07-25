@@ -94,7 +94,7 @@ pub const Lines = struct {
     }
 };
 
-const max_cycle_length = 100;
+const max_cycle_length = 1000;
 
 fn getAgentSymbolNested(runtime: *const Runtime, ag: *const Agent, stream: *BufferedStringStream) !void {
     const name = runtime.agent_id_map.findKey(ag.id);
@@ -121,9 +121,9 @@ fn getAgentSymbolNested(runtime: *const Runtime, ag: *const Agent, stream: *Buff
                             wire = wired_to.name;
                         }
                         cnt = cnt + 1;
-                        if (cnt > max_cycle_length) {
-                            break;
-                        }
+                        // if (cnt > max_cycle_length) {
+                        //     break;
+                        // }
                     }
                     try stream.write("<NAME>", .{});
                 },
