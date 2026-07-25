@@ -2,7 +2,7 @@ Fact(r) >< x
 | x == 1 => r ~ x
 | otherwise =>
     Dup(x1, x2) ~ x,
-    Sub(w, 1) ~ x1,
+    Sub(w, x1) ~ 1,
     Fact(w') ~ w,
     Mul(r, x2) ~ w';
 
@@ -13,7 +13,7 @@ r;
 Fib'(r, p1, p2) >< n
 | n == 0 => r ~ p2, Eraser() ~ (p1, n)
 | otherwise =>
-    Sub(n', 1) ~ n,
+    Sub(n', n) ~ 1,
     Dup(p1', p1'') ~ p1,
     Add(new_p1, p1') ~ p2,
     Fib'(r, new_p1, p1'') ~ n';

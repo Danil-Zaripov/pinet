@@ -8,8 +8,6 @@ const Diagnostic = Compilation.Diagnostic;
 const HandledError = Diagnostic.HandledError;
 
 pub const Condition = @import("condition.zig");
-const Shrinker = @import("shrinker.zig");
-pub const Bytecode = Shrinker.Bytecode;
 
 const Scope = @import("scope.zig");
 const RegisterId = Scope.RegisterId;
