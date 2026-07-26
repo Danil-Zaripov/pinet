@@ -470,4 +470,3 @@ test "ObjPool: basic extension of pool" {
 
     my_heap.freeOne(item_ptr2);
 }
-
