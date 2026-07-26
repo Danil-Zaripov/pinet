@@ -129,29 +129,50 @@ pub fn BasicHeap(comptime T: type) type {
 pub fn ObjPool(comptime T: type) type {
     return struct {
         const Self = @This();
+
         const Optional = union {
             value: T,
             ptr: ?*Optional,
         };
 
-        items: []Optional,
-        capacity: usize,
-        free_list: ?*Optional,
-        free_count: usize,
+        const Block = struct {
+            items: []Optional,
+            next: ?*Block,
+        };
 
-        pub fn init(gpa: std.mem.Allocator, capacity: usize) !Self {
-            const items = try gpa.alloc(Optional, capacity);
-            blockInit(items);
+        free_list: ?*Optional,
+        block_list: *Block,
+        free_count: usize,
+        used_count: usize,
+        new_capacity: ?usize,
+        capacity: usize,
+        gpa: std.mem.Allocator,
+
+        pub fn init(gpa: std.mem.Allocator, capacity: usize, new_capacity: ?usize) !Self {
+            const first_block = try gpa.alloc(Block, 1);
+            const first_block_casted: *Block = @ptrCast(first_block);
+            first_block_casted.items = try gpa.alloc(Optional, capacity);
+            first_block_casted.next = null;
+            blockInit(first_block_casted.items);
             return .{
-                .items = items,
                 .capacity = capacity,
-                .free_list = @ptrCast(@alignCast(items)),
+                .free_list = @ptrCast(@alignCast(first_block_casted.items)),
                 .free_count = capacity,
+                .new_capacity = new_capacity,
+                .block_list = first_block_casted,
+                .gpa = gpa,
+                .used_count = 0,
             };
         }
 
         pub fn deinit(self: *Self, gpa: std.mem.Allocator) void {
-            gpa.free(self.items);
+            var next = self.block_list;
+            while (true) {
+                gpa.free(next.items);
+                const new_next = next.next;
+                gpa.destroy(next);
+                next = new_next orelse break;
+            }
         }
 
         const vtable: Heap(T).VTable = .{
@@ -166,9 +187,22 @@ pub fn ObjPool(comptime T: type) type {
 
         fn allocOne(ctx: *anyopaque) !*T {
             const self: *Self = @ptrCast(@alignCast(ctx));
+            if (self.free_list == null) {
+                const capacity = self.new_capacity orelse return error.OutOfMemory;
+                const new_block = try self.gpa.alloc(Block, 1);
+                const new_block_casted: *Block = @ptrCast(new_block);
+                new_block_casted.items = try self.gpa.alloc(Optional, capacity);
+                blockInit(new_block_casted.items);
+                self.free_count += capacity;
+                new_block_casted.next = self.block_list;
+                self.block_list = new_block_casted;
+                self.free_list = @ptrCast(new_block_casted.items);
+            }
+
             const current_ptr = self.free_list orelse return error.OutOfMemory;
             self.free_list = current_ptr.*.ptr;
             self.free_count -= 1;
+            self.used_count += 1;
             return @ptrCast(current_ptr);
         }
 
@@ -180,14 +214,14 @@ pub fn ObjPool(comptime T: type) type {
             new_ptr.ptr = self.free_list;
             self.free_list = new_ptr;
             self.free_count += 1;
+            self.used_count -= 1;
         }
 
         fn printUsage(ctx: *anyopaque) void {
             const self: *Self = @ptrCast(@alignCast(ctx));
-            const used = self.items.len - self.free_count;
             std.debug.print("Heap({s}): {} used, {} free, sizeOf(T) = {}\n", .{
                 @typeName(T),
-                used,
+                self.used_count,
                 self.free_count,
                 @sizeOf(T),
             });
@@ -213,7 +247,7 @@ test "ObjPool: basic allocation and free" {
         sh: u64,
     };
 
-    var pool = try ObjPool(meow).init(gpa, 4);
+    var pool = try ObjPool(meow).init(gpa, 4, 1);
     defer pool.deinit(gpa);
 
     const my_heap = pool.heap();
@@ -230,7 +264,7 @@ test "ObjPool: basic allocation and free" {
 test "ObjPool: basic allocation and free, type smaller than usize" {
     const gpa = std.testing.allocator;
 
-    var pool = try ObjPool(i32).init(gpa, 4);
+    var pool = try ObjPool(i32).init(gpa, 4, 1);
     defer pool.deinit(gpa);
 
     const my_heap = pool.heap();
@@ -252,7 +286,7 @@ test "ObjPool: basic allocation and free with data alignment smaller than usize 
         legs: u16,
     };
 
-    var pool = try ObjPool(meow2).init(gpa, 4);
+    var pool = try ObjPool(meow2).init(gpa, 4, 1);
     defer pool.deinit(gpa);
 
     const my_heap = pool.heap();
@@ -271,7 +305,7 @@ test "ObjPool: basic allocation and free with data alignment smaller than usize 
 test "ObjPool: Out of memory " {
     const gpa = std.testing.allocator;
 
-    var pool = try ObjPool(u64).init(gpa, 1);
+    var pool = try ObjPool(u64).init(gpa, 1, null);
     defer pool.deinit(gpa);
 
     const my_heap = pool.heap();
@@ -294,7 +328,7 @@ test "ObjPool: alloc after free" {
         sh: u64,
     };
 
-    var pool = try ObjPool(meow).init(gpa, 3);
+    var pool = try ObjPool(meow).init(gpa, 3, 1);
     defer pool.deinit(gpa);
 
     const my_heap = pool.heap();
@@ -318,7 +352,7 @@ test "ObjPool: alloc after free" {
 test "ObjPool: basic alloc of size = usize " {
     const gpa = std.testing.allocator;
 
-    var pool = try ObjPool(i64).init(gpa, 10000);
+    var pool = try ObjPool(i64).init(gpa, 10000, 1);
     defer pool.deinit(gpa);
 
     const my_heap = pool.heap();
@@ -339,7 +373,7 @@ test "ObjPool: LIFO allocation order after free" {
         weight: f32,
     };
 
-    var pool = try ObjPool(Toy).init(gpa, 4);
+    var pool = try ObjPool(Toy).init(gpa, 4, 1);
     defer pool.deinit(gpa);
 
     const my_heap = pool.heap();
@@ -390,6 +424,36 @@ test "ObjPool: interior slots are misaligned for the intrusive free-list pointer
     const ptr_align = @alignOf(*Meow);
     if (@sizeOf(Meow) % ptr_align == 0) return error.SkipZigTest;
 
-    var pool = try ObjPool(Meow).init(gpa, 2);
+    var pool = try ObjPool(Meow).init(gpa, 2, 1);
     defer pool.deinit(gpa);
+}
+
+test "ObjPool: basic extention of pool" {
+    const gpa = std.testing.allocator;
+
+    const meow = struct {
+        meow: i32,
+        sh: u64,
+    };
+
+    var pool = try ObjPool(meow).init(gpa, 3, 1);
+    defer pool.deinit(gpa);
+
+    const my_heap = pool.heap();
+    const item_ptr = try my_heap.allocOne();
+    _ = try my_heap.allocOne();
+    _ = try my_heap.allocOne();
+    _ = try my_heap.allocOne();
+
+    item_ptr.meow = 1;
+    item_ptr.sh = 2;
+    my_heap.freeOne(item_ptr);
+
+    const item_ptr2 = try my_heap.allocOne();
+    item_ptr2.meow = 1;
+    item_ptr2.sh = 2;
+
+    try std.testing.expectEqual(@as(meow, .{ .meow = 1, .sh = 2 }), item_ptr2.*);
+
+    my_heap.freeOne(item_ptr2);
 }
