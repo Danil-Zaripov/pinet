@@ -328,7 +328,7 @@ test "ObjPool: alloc after free" {
         sh: u64,
     };
 
-    var pool = try ObjPool(meow).init(gpa, 3, 1);
+    var pool = try ObjPool(meow).init(gpa, 1, 1);
     defer pool.deinit(gpa);
 
     const my_heap = pool.heap();
@@ -373,7 +373,7 @@ test "ObjPool: LIFO allocation order after free" {
         weight: f32,
     };
 
-    var pool = try ObjPool(Toy).init(gpa, 4, 1);
+    var pool = try ObjPool(Toy).init(gpa, 1, 1);
     defer pool.deinit(gpa);
 
     const my_heap = pool.heap();
@@ -428,7 +428,20 @@ test "ObjPool: interior slots are misaligned for the intrusive free-list pointer
     defer pool.deinit(gpa);
 }
 
-test "ObjPool: basic extention of pool" {
+test "ObjPool: deinit without memory leak" {
+    var pool = try ObjPool([128]u8).init(std.testing.allocator, 4, 4);
+    var items: [12]*[128]u8 = undefined;
+    for (0..12) |i| {
+        items[i] = try pool.heap().allocOne();
+    }
+
+    pool.heap().freeOne(items[11]);
+    pool.heap().freeOne(items[10]);
+
+    pool.deinit(std.testing.allocator);
+}
+
+test "ObjPool: basic extension of pool" {
     const gpa = std.testing.allocator;
 
     const meow = struct {
@@ -457,3 +470,4 @@ test "ObjPool: basic extention of pool" {
 
     my_heap.freeOne(item_ptr2);
 }
+
