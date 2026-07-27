@@ -121,11 +121,11 @@ fn getAgentSymbolNested(runtime: *const Runtime, ag: *const Agent, stream: *Buff
                             wire = wired_to.name;
                         }
                         cnt = cnt + 1;
-                        // if (cnt > max_cycle_length) {
-                        //     break;
-                        // }
+                        if (cnt > max_cycle_length) {
+                            break;
+                        }
                     }
-                    try stream.write("<NAME>", .{});
+                    try stream.write("<NAME{}>", .{cnt});
                 },
                 .agent => |new_ag| {
                     try getAgentSymbolNested(runtime, new_ag, stream);

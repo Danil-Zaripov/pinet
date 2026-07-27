@@ -11,7 +11,7 @@ const Debug = @import("debug");
 const Config = @import("config");
 
 fn name_name(c: *Core, lname: *Name, rname: *Name) !?Equation {
-    Debug.log(.print_interactions, "name - name interaction\n", .{});
+    //Debug.log(.print_interactions, "name - name interaction\n", .{});
 
     const ltraversed = lname.traverseFree(c.name_heap);
     const rtraversed = rname.traverseFree(c.name_heap);
@@ -32,7 +32,7 @@ fn name_name(c: *Core, lname: *Name, rname: *Name) !?Equation {
 fn name_agent(c: *Core, name: *Name, agent: *Agent) !?Equation {
     // TODO (KoGora): perf analysis
     if (Config.debug_printing.print_interactions) {
-        std.debug.print("{s} - name interaction\n", .{c.runtime.agent_id_map.findKey(agent.id).?});
+        //std.debug.print("{s} - name interaction\n", .{c.runtime.agent_id_map.findKey(agent.id).?});
     }
 
     const traversed = name.traverseFree(c.name_heap);

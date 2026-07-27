@@ -9,6 +9,8 @@ const HandledError = Diagnostic.HandledError;
 
 pub const Condition = @import("condition.zig");
 
+const Config = @import("config");
+
 const Scope = @import("scope.zig");
 const RegisterId = Scope.RegisterId;
 const NameInfo = Scope.NameInfo;
@@ -378,6 +380,10 @@ pub fn compileWildcard(
 }
 
 pub fn compileRule(runtime: *Runtime, rule: AST.Rule, diag: *Diagnostic) !CompiledRule {
+    if (Config.debug_printing.print_compiled_instructions) {
+        std.debug.print("{s} >< {s}\n\n", .{ rule.lhs.val.name, rule.rhs.val.name });
+    }
+
     if (rule.lhs.val.portlist == null or rule.rhs.val.portlist == null) {
         // Wildcard rule
         if (rule.lhs.val.portlist) |_| {

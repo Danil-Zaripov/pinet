@@ -46,6 +46,7 @@ fn evalCondition(c: *Core, lagent: *Agent, ragent: *Agent, instructions: []Condi
                             if (traversed.port) |traversed_port| {
                                 break :agent traversed_port.agent;
                             } else {
+                                std.debug.print("No value on name\n", .{});
                                 return EvaluationError.BadSecondaryValue;
                             }
                         },
@@ -110,7 +111,7 @@ pub fn evalEquation(c: *Core, eq: Equation) !void {
 
     // TODO (KoGora): perf analysis
     if (Config.debug_printing.print_interactions) {
-        std.debug.print("{s} - {s}\n", .{
+        std.debug.print("{s} ~ {s}\n", .{
             c.runtime.agent_id_map.findKey(lagent.id).?,
             c.runtime.agent_id_map.findKey(ragent.id).?,
         });
@@ -171,7 +172,9 @@ pub fn evalEquation(c: *Core, eq: Equation) !void {
             for (conditioned_rules) |conditioned| {
                 if (conditioned.condition) |condition| {
                     const evaluated = evalCondition(c, lagent, ragent, condition) catch |err| errblk: {
-                        std.debug.print("Caught an error {s}!\n", .{@errorName(err)});
+                        if (Config.debug_printing.print_interactions)
+                            std.debug.print("Caught an error {s}!\n", .{@errorName(err)});
+
                         switch (err) {
                             EvaluationError.BadSecondaryValue => break :errblk false,
                             // There probably should be some other error handling in case of bad arguments

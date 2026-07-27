@@ -6,10 +6,17 @@
 const std = @import("std");
 
 const Scope = @import("scope.zig");
+
 const AST = @import("ast");
+
 const Runtime = @import("shared_runtime");
+
 const Types = Runtime.Types;
+
 const Builtin = @import("vm").Builtin;
+
+const Config = @import("config");
+
 const Compilation = @import("compilation.zig");
 const Diagnostic = Compilation.Diagnostic;
 const HandledError = Diagnostic.HandledError;
@@ -300,7 +307,35 @@ pub fn compile(
     const res = try compileCondition(&context, expr_node);
     try context.putInstruction(.get_result(res.result));
 
+    if (Config.debug_printing.print_compiled_instructions) {
+        std.debug.print("===== Compiling condition =====\n\n", .{});
+
+        for (context.instrs_list.items) |instr| {
+            const symbol = try conditionSymbol(instr, runtime.gpa);
+            defer runtime.gpa.free(symbol);
+
+            std.debug.print("{s}\n\n", .{symbol});
+        }
+        std.debug.print("=====    Condition end    =====\n\n", .{});
+    }
+
     return try context.deinitAndGetInstrs();
 }
 
 const toArenaOwnedSlice = Compilation.toArenaOwnedSlice;
+
+pub fn conditionSymbol(instr: Instruction, gpa: std.mem.Allocator) ![]u8 {
+    return switch (instr.tag) {
+        .apply_bin => |binary| std.fmt.allocPrint(gpa, "binary: {} {s} {} -> {}", .{ instr.lhs, binary.symbol(), instr.rhs, instr.result }),
+        .assert_id => |id| std.fmt.allocPrint(gpa, "assert: {} on reg{}", .{ id, instr.lhs }),
+        .put_port => |port| std.fmt.allocPrint(gpa, "load: take {s} port{} -> {}", .{
+            if (port.owner == .lhs) "lhs" else "rhs",
+            port.idx orelse 11,
+            instr.result,
+        }),
+        .apply_un => std.fmt.allocPrint(gpa, "unary: !{} -> {}", .{ instr.lhs, instr.result }),
+        .get_result => std.fmt.allocPrint(gpa, "result: {}", .{instr.result}),
+        .get_special => std.fmt.allocPrint(gpa, "get_special: {} -> {}", .{ instr.lhs, instr.result }),
+        .put_constant => |special| std.fmt.allocPrint(gpa, "put_constant: {} -> {}", .{ special.integer, instr.result }),
+    };
+}

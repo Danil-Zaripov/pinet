@@ -143,6 +143,7 @@ pub fn build(b: *std.Build) void {
     mod_printing.addImport("config", mod_options);
     mod_shared_runtime.addImport("config", mod_options);
     mod_debug.addImport("config", mod_options);
+    mod_compilation.addImport("config", mod_options);
     mod_vm.addImport("config", mod_options);
 
     b.installArtifact(exe);

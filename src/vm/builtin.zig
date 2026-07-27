@@ -155,8 +155,19 @@ const copying_duplicator = struct {
         c: *Core,
         duplicator_arity: Agent.Arity,
         duplicator_id: Agent.Id,
-        names_map: *std.AutoHashMap(*Name, ?*Name),
+        names_map: *std.AutoHashMap(*Name, DuplicatingName),
         arena: std.mem.Allocator,
+    };
+
+    pub const DuplicatingName = union(enum) {
+        /// A name appearing twice inside the same subnet:
+        /// (w, F(w))
+        inner: struct { next_name: ?*Name },
+        /// A name that connects two agents with their auxillary ports.
+        outer: struct {
+            original_port: *Value,
+            dup_agent: *Agent,
+        },
     };
 
     pub fn makeCopy(ctx: *const CopyContext, port_idx: usize, agent: *Agent) !*Agent {
@@ -164,24 +175,25 @@ const copying_duplicator = struct {
         const ag_arity = ctx.c.runtime.agent_arities.map.get(agent.id).?;
         for (0..ag_arity) |idx| {
             const port = agent.ports[idx].?;
-            port_switch: switch (port) {
+            switch (port) {
                 .name => |connected_name| {
-                    if (connected_name.port) |connected_thing| {
-
-                        // If the name has a port then we skip the original name and
-                        // go straight to its port
-                        defer ctx.c.name_heap.freeOne(connected_name);
-                        continue :port_switch connected_thing;
-                    } else {
-                        const stored_ptr = ctx.names_map.getPtr(connected_name).?;
-                        if (stored_ptr.*) |stored| {
-                            stored_ptr.* = null;
-                            ag_copy.ports[idx] = Value{ .name = stored };
-                        } else {
+                    const stored_ptr = ctx.names_map.getPtr(connected_name).?;
+                    switch (stored_ptr.*) {
+                        .inner => |inner| {
+                            if (inner.next_name) |next_name| {
+                                stored_ptr.inner.next_name = null;
+                                ag_copy.ports[idx] = .{ .name = next_name };
+                            } else {
+                                const next_name = try ctx.c.createEmptyName();
+                                stored_ptr.inner.next_name = next_name;
+                                ag_copy.ports[idx] = .{ .name = next_name };
+                            }
+                        },
+                        .outer => |outer| {
                             const name = try ctx.c.createEmptyName();
-                            stored_ptr.* = name;
-                            ag_copy.ports[idx] = Value{ .name = name };
-                        }
+                            ag_copy.ports[idx] = .{ .name = name };
+                            outer.dup_agent.ports[port_idx] = .{ .name = name };
+                        },
                     }
                 },
                 .agent => |connected_agent| {
@@ -200,13 +212,28 @@ const copying_duplicator = struct {
             const port = agent.ports[idx].?;
             port_switch: switch (port) {
                 .name => |connected_name| {
-                    if (connected_name.port) |connected_thing| {
-                        // If the name has a port then we skip the original name and
-                        // go straight to its port
-                        defer ctx.c.name_heap.freeOne(connected_name);
-                        continue :port_switch connected_thing;
+                    const traversed = connected_name.traverseFree(ctx.c.name_heap);
+                    // This means that after copyNames, there are no names that do not have null ports.
+                    if (traversed.port) |traversed_port| {
+                        ctx.c.name_heap.freeOne(traversed);
+                        agent.ports[idx] = traversed_port;
+                        continue :port_switch traversed_port;
                     } else {
-                        try ctx.names_map.put(connected_name, null);
+                        agent.ports[idx] = Value{ .name = traversed };
+                        if (ctx.names_map.getPtr(traversed)) |duplicating_name| {
+                            duplicating_name.* = .{
+                                .inner = .{
+                                    .next_name = null,
+                                },
+                            };
+                        } else {
+                            try ctx.names_map.put(traversed, .{
+                                .outer = .{
+                                    .original_port = &agent.ports[idx].?,
+                                    .dup_agent = try ctx.c.createAgent(ctx.duplicator_id),
+                                },
+                            });
+                        }
                     }
                 },
                 .agent => |connected_agent| {
@@ -228,7 +255,7 @@ pub fn dupCopy(c: *Core, self: *Agent, ag: *Agent) BuiltinAgentError!void {
     const allocator = arena.allocator();
 
     const arity = c.runtime.agent_arities.map.get(self.id).?;
-    var names_map = std.AutoHashMap(*Name, ?*Name).init(allocator);
+    var names_map = std.AutoHashMap(*Name, copying_duplicator.DuplicatingName).init(allocator);
     defer names_map.deinit();
 
     const ctx: copying_duplicator.CopyContext = .{
@@ -262,6 +289,17 @@ pub fn dupCopy(c: *Core, self: *Agent, ag: *Agent) BuiltinAgentError!void {
             };
             try c.pushUrgent(eq);
         }
+    }
+
+    var it = names_map.iterator();
+
+    while (it.next()) |entry| {
+        const outer = if (entry.value_ptr.* == .outer) entry.value_ptr.outer else continue;
+        const self_name = entry.key_ptr.*;
+        const new_self_name = try c.createEmptyName();
+        outer.original_port.name = new_self_name;
+        self_name.port = .{ .agent = outer.dup_agent };
+        outer.dup_agent.ports[0] = .{ .name = new_self_name };
     }
 }
 
