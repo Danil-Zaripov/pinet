@@ -97,7 +97,7 @@ pub fn main(init: std.process.Init) !void {
     defer vm.deinit();
 
     vm.runProgram(program) catch |err| {
-        if (err == error.CompilationError) {
+        if (err == error.CompilationError or err == error.ErrorDuringParsing) {
             std.process.exit(1);
         }
 

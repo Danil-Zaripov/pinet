@@ -61,9 +61,15 @@ pub fn import(self: *Self, path: []const u8, runtime: *Runtime) !void {
 
     const program = parser.parseProgram() catch |err| {
         if (err == Parser.Error.ErrorDuringParsing) {
-            const message = try parser.err.?.messageLine(&parser);
-            std.debug.print("{s}", .{message});
-            return;
+            const prettyLines = try parser.err.?.getPrettyLine(&parser, contents);
+            const messageLine = try parser.err.?.messageLine(&parser);
+            try stderr.interface.print("{s}:\n{s}\n\n{s}\n{s}\n", .{
+                resolved_path,
+                messageLine,
+                prettyLines[0],
+                prettyLines[1],
+            });
+            return err;
         }
         return err;
     };
