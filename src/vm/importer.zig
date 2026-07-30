@@ -31,7 +31,6 @@ pub fn import(self: *Self, path: []const u8, runtime: *Runtime) !void {
     }
 
     if (self.imported.contains(resolved_path)) {
-        gpa.free(resolved_path);
         return;
     }
 
@@ -46,7 +45,8 @@ pub fn import(self: *Self, path: []const u8, runtime: *Runtime) !void {
         .of(u8),
         0,
     );
-    try self.imported.put(resolved_path, contents);
+
+    try self.imported.put(try runtime.arena.dupe(u8, resolved_path), contents);
 
     const tokens = try Lexer.tokenize(gpa, contents);
     defer gpa.free(tokens);
