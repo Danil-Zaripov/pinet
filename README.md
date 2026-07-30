@@ -2,6 +2,8 @@
 
 Pinet is a (not yet) parallel interaction nets interpreter, inspired by [Inpla](https://github.com/inpla/inpla). The language is Inpla's dialect.
 
+Interaction nets is a computational model with some restrictions, that allow for trivial parallelism.
+
 ## How to run
 
 Install zig compiler v0.16, then it's simple:
@@ -14,13 +16,13 @@ $ zig build run -- -f ./tests/list_sorting.in
 
 Note that this will compile in debug mode. For release mode use `-Doptimize=ReleaseFast`.
 
+## Quick reference
+
+You can read a basic user manual at `docs/LANGUAGE.md`.
+
 ## Current state
 
-Pinet is in early development. Single-threaded evaluation of interaction nets, based on Inpla model, is fully implemented. Here is what is lacking:
-
-- [ ] parallel evaluation (using std.Io primitives or hand-written)
-- [ ] advanced memory management (fast and thread-safe slab allocation or normal allocation for agents with arbitrary arity)
-- [ ] research into name chaining (a lot of unnecessary temporary names get created during execution, which leads to increased memory consumption)
+Pinet is in early development. Single-threaded evaluation of interaction nets, based on Inpla model, is fully implemented. Parallel execution is in active development.
 
 # Acknowledgement & Lineage
 
