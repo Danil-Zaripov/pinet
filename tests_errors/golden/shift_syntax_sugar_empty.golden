@@ -1,0 +1,4 @@
+Syntax error on line 3 index 12: Expected port, found empty: )
+
+    x << Z();
+           ^

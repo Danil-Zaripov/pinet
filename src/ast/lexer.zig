@@ -38,6 +38,7 @@ pub const Token = struct {
         geq,
         eq,
         assign,
+        shift,
         rule_symbol,
         tilde,
         comma,
@@ -75,6 +76,7 @@ pub const Token = struct {
                 .geq => ">=",
                 .eq => "==",
                 .assign => "=",
+                .shift => "<<",
                 .rule_symbol => "><",
                 .tilde => "~",
                 .comma => ",",
@@ -282,8 +284,8 @@ pub const Tokenizer = struct {
                     continue :state .forward_slash;
                 },
                 else => {
-                    std.debug.print("{c}", .{self.buffer[self.index]});
-                    unreachable;
+                    std.debug.print("invalid char: {c}, number {}\n", .{ self.buffer[self.index], self.buffer[self.index] });
+                    continue :state .invalid;
                 },
             },
             .pipe => switch (self.buffer[self.index]) {
@@ -315,6 +317,10 @@ pub const Tokenizer = struct {
                 '=' => {
                     self.advance();
                     result.tag = .leq;
+                },
+                '<' => {
+                    self.advance();
+                    result.tag = .shift;
                 },
                 else => result.tag = .less,
             },

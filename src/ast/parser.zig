@@ -4,6 +4,17 @@ const std = @import("std");
 const Lexer = @import("lexer.zig");
 const AST = @import("ast.zig");
 
+const Node = AST.Node;
+const Expression = AST.Expression;
+const RuleExpression = AST.RuleExpression;
+const Rule = AST.Rule;
+const Object = AST.Object;
+const ActivePair = AST.ActivePair;
+const TokenSlice = AST.TokenSlice;
+const Statement = AST.Statement;
+const Program = AST.Program;
+const Name = AST.Name;
+
 const Token = Lexer.Token;
 
 pub const Parser = @This();
@@ -21,6 +32,8 @@ pub const ParserError = struct {
         expected_object: void,
         expected_statement: void,
         expected_expression: void,
+        expected_agent: void,
+        expected_port: void,
         unexpected_token: struct { expected: Token.Tag },
     };
 
@@ -30,7 +43,44 @@ pub const ParserError = struct {
             .expected_object => try std.fmt.allocPrint(alloc, "Expected object, found token: {s}", .{self.token.tag.symbol()}),
             .expected_statement => try std.fmt.allocPrint(alloc, "Expected statement, found token: {s}", .{self.token.tag.symbol()}),
             .expected_expression => try std.fmt.allocPrint(alloc, "Expected expression, found token: {s}", .{self.token.tag.symbol()}),
+            .expected_agent => try std.fmt.allocPrint(alloc, "Expected agent, found name {s}", .{self.token.content.?}),
+            .expected_port => try std.fmt.allocPrint(alloc, "Expected port, found empty: {s}", .{self.token.tag.symbol()}),
             .unexpected_token => |val| try std.fmt.allocPrint(alloc, "Expected {s}, found {s}", .{ val.expected.symbol(), self.token.tag.symbol() }),
+        };
+    }
+
+    pub fn expected_agent(token: Token) ParserError {
+        return .{
+            .tag = .expected_agent,
+            .token = token,
+        };
+    }
+
+    pub fn expected_object(token: Token) ParserError {
+        return .{
+            .tag = .expected_object,
+            .token = token,
+        };
+    }
+
+    pub fn expected_statement(token: Token) ParserError {
+        return .{
+            .tag = .expected_statement,
+            .token = token,
+        };
+    }
+
+    fn unexpected_token(expected: Token.Tag, actual: *const Token) ParserError {
+        return .{
+            .tag = .{ .unexpected_token = .{ .expected = expected } },
+            .token = actual.*,
+        };
+    }
+
+    fn expected_port(token: Token) ParserError {
+        return .{
+            .tag = .expected_port,
+            .token = token,
         };
     }
 
@@ -98,13 +148,6 @@ pub fn init(tokens: []const Token, gpa: std.mem.Allocator, page: std.mem.Allocat
     };
 }
 
-fn unexpected_token(self: *Parser, expected: Token.Tag, actual: *const Token) void {
-    self.err = .{
-        .tag = .{ .unexpected_token = .{ .expected = expected } },
-        .token = actual.*,
-    };
-}
-
 pub fn deinit(self: *Parser, gpa: std.mem.Allocator) void {
     self._arena.deinit();
     gpa.destroy(self._arena);
@@ -135,22 +178,22 @@ fn getTokenInfixBP(self: *Parser, token: *const Token) !struct { i32, i32 } {
     };
 }
 
-fn parseUnary(self: *Parser) !*AST.Node(AST.Expression) {
-    const expr = try self.arena.create(AST.Node(AST.Expression));
+fn parseUnary(self: *Parser) !*Node(Expression) {
+    const expr = try self.arena.create(Node(Expression));
     expr.tslice.start = @intCast(self.index);
     expr.val = switch (self.peek().tag) {
-        .exclamation_mark => AST.Expression{ .unary_op = .{ .tag = .not, .item = try self.parseUnary() } },
-        else => AST.Expression{ .atom = try self.parseObject() },
+        .exclamation_mark => Expression{ .unary_op = .{ .tag = .not, .item = try self.parseUnary() } },
+        else => Expression{ .atom = try self.parseObject() },
     };
     expr.tslice.end = @intCast(self.index - 1);
     return expr;
 }
 
-fn parseExpression(self: *Parser, min_bp: i32) !*AST.Node(AST.Expression) {
+fn parseExpression(self: *Parser, min_bp: i32) !*Node(Expression) {
     var lhs = try self.parseUnary();
     while (true) {
         const token = self.peek();
-        const op: AST.Expression.BinaryExpr.Tag = switch (token.tag) {
+        const op: Expression.BinaryExpr.Tag = switch (token.tag) {
             .fatrightarrow => break,
             .eq => .eq,
             .logic_and => .logic_and,
@@ -174,7 +217,7 @@ fn parseExpression(self: *Parser, min_bp: i32) !*AST.Node(AST.Expression) {
         }
         _ = self.advance();
         const rhs = try self.parseExpression(rbp);
-        const new_lhs = try self.arena.create(AST.Node(AST.Expression));
+        const new_lhs = try self.arena.create(Node(Expression));
         new_lhs.* = .{
             .tslice = .{
                 .start = lhs.tslice.start,
@@ -193,8 +236,8 @@ fn parseExpression(self: *Parser, min_bp: i32) !*AST.Node(AST.Expression) {
     return lhs;
 }
 
-fn parseObjList(self: *Parser) error{ NoSpaceLeft, OutOfMemory, ErrorDuringParsing, TupleTooBig }![]AST.Node(AST.Object) {
-    var list = std.ArrayList(AST.Node(AST.Object)).empty;
+fn parseObjList(self: *Parser) error{ NoSpaceLeft, OutOfMemory, ErrorDuringParsing, TupleTooBig }![]Node(Object) {
+    var list = std.ArrayList(Node(Object)).empty;
     errdefer list.deinit(self.intermediate_list_allocator);
 
     while (self.peek().tag != .rparen) {
@@ -222,15 +265,15 @@ fn parseObjList(self: *Parser) error{ NoSpaceLeft, OutOfMemory, ErrorDuringParsi
         }
     }
 
-    return toArenaOwnedSlice(AST.Node(AST.Object), &list, self.intermediate_list_allocator, self.arena);
+    return toArenaOwnedSlice(Node(Object), &list, self.intermediate_list_allocator, self.arena);
 }
 
-fn parseConsList(self: *Parser) error{ NoSpaceLeft, OutOfMemory, ErrorDuringParsing, TupleTooBig }!AST.Node(AST.Object) {
+fn parseConsList(self: *Parser) error{ NoSpaceLeft, OutOfMemory, ErrorDuringParsing, TupleTooBig }!Node(Object) {
     const cons_arity = 2;
 
     const tentry = self.peek();
-    var ret: AST.Node(AST.Object) = .{
-        .val = AST.Object{
+    var ret: Node(Object) = .{
+        .val = Object{
             .name = undefined,
             .portlist = undefined,
         },
@@ -249,16 +292,16 @@ fn parseConsList(self: *Parser) error{ NoSpaceLeft, OutOfMemory, ErrorDuringPars
         }
         ret.val = .{
             .name = AST.cons_list_ident,
-            .portlist = try self.arena.alloc(AST.Node(AST.Object), cons_arity),
+            .portlist = try self.arena.alloc(Node(Object), cons_arity),
         };
         ret.val.portlist.?[0] = try self.parseObject();
         var node = ret;
         while (self.peek().tag == .comma) {
             _ = self.advance();
-            var new_node: AST.Node(AST.Object) = .{
-                .val = AST.Object{
+            var new_node: Node(Object) = .{
+                .val = Object{
                     .name = AST.cons_list_ident,
-                    .portlist = try self.arena.alloc(AST.Node(AST.Object), cons_arity),
+                    .portlist = try self.arena.alloc(Node(Object), cons_arity),
                 },
                 .tslice = .{
                     .start = @intCast(self.index),
@@ -271,7 +314,7 @@ fn parseConsList(self: *Parser) error{ NoSpaceLeft, OutOfMemory, ErrorDuringPars
             node = new_node;
         }
         try self.expectTag(.rbracket, &self.advance());
-        node.val.portlist.?[1] = AST.Node(AST.Object){
+        node.val.portlist.?[1] = Node(Object){
             .val = .{
                 .name = AST.nil_list_ident,
                 .portlist = &.{},
@@ -286,10 +329,10 @@ fn parseConsList(self: *Parser) error{ NoSpaceLeft, OutOfMemory, ErrorDuringPars
     return ret;
 }
 
-fn parseObject(self: *Parser) !AST.Node(AST.Object) {
+fn parseObject(self: *Parser) !Node(Object) {
     const tentry = self.peek();
-    var ret: AST.Node(AST.Object) = .{
-        .val = AST.Object{
+    var ret: Node(Object) = .{
+        .val = Object{
             .name = undefined,
             .portlist = undefined,
         },
@@ -310,9 +353,9 @@ fn parseObject(self: *Parser) !AST.Node(AST.Object) {
             },
             .numeric_literal => {
                 ret.val.name = AST.number_special_ident;
-                const objlist = try self.arena.alloc(AST.Node(AST.Object), 1);
-                objlist[0] = AST.Node(AST.Object){
-                    .val = AST.Object{
+                const objlist = try self.arena.alloc(Node(Object), 1);
+                objlist[0] = Node(Object){
+                    .val = Object{
                         .name = tentry.content.?,
                         .portlist = null,
                     },
@@ -383,13 +426,13 @@ fn getTupleName(self: *Parser, size: usize) ![]const u8 {
 /// Should be invoked when checking the peeking token, not advanced.
 fn expectTag(self: *Parser, expected: Token.Tag, actual: *const Token) Error!void {
     if (expected != actual.tag) {
-        self.unexpected_token(expected, actual);
+        self.err = ParserError.unexpected_token(expected, actual);
         return Error.ErrorDuringParsing;
     }
 }
 
-fn parsePairs(self: *Parser) ![]AST.Node(AST.ActivePair) {
-    var list = std.ArrayList(AST.Node(AST.ActivePair)).empty;
+fn parsePairs(self: *Parser) ![]Node(ActivePair) {
+    var list = std.ArrayList(Node(ActivePair)).empty;
     errdefer list.deinit(self.intermediate_list_allocator);
     if (self.peek().tag == .semicolon or self.peek().tag == .pipe) {
         return &.{};
@@ -398,44 +441,96 @@ fn parsePairs(self: *Parser) ![]AST.Node(AST.ActivePair) {
     objtoken: switch (self.peek().tag) {
         .identifier, .lparen, .numeric_literal => {
             const lhs = try self.parseObject();
-            const tilde = self.advance();
-            try self.expectTag(.tilde, &tilde);
-            const rhs = try self.parseObject();
-            const pair = AST.ActivePair{ .lhs = lhs, .rhs = rhs };
-            const tslice = AST.TokenSlice{ .start = lhs.tslice.start, .end = rhs.tslice.end };
-            try list.append(self.intermediate_list_allocator, .{ .val = pair, .tslice = tslice });
-            if (self.peek().tag == .comma) {
-                _ = self.advance();
-                continue :objtoken self.peek().tag;
+            const binder = self.advance();
+
+            if (binder.tag == .tilde) {
+                const rhs = try self.parseObject();
+                const pair = ActivePair{ .lhs = lhs, .rhs = rhs };
+                const tslice: TokenSlice = .combine(lhs.tslice, rhs.tslice);
+                try list.append(self.intermediate_list_allocator, .{ .val = pair, .tslice = tslice });
+                if (self.peek().tag == .comma) {
+                    _ = self.advance();
+                    continue :objtoken self.peek().tag;
+                }
+            } else if (binder.tag == .shift) {
+                // syntactic sugar:
+                // r << A(b, c) => c ~ A(r, b)
+
+                const rhs = try self.parseObject();
+
+                const rhs_portlist = rhs.val.portlist orelse {
+                    self.err = ParserError.expected_agent(self.tokens[rhs.tslice.start]);
+                    return Error.ErrorDuringParsing;
+                };
+
+                defer self.arena.free(rhs_portlist);
+
+                if (rhs_portlist.len < 1) {
+                    self.err = ParserError.expected_port(self.tokens[rhs.tslice.end]);
+                    return Error.ErrorDuringParsing;
+                }
+
+                const lhs_shifted: Node(Object) = .{
+                    .tslice = lhs.tslice,
+                    .val = rhs_portlist[rhs_portlist.len - 1].val,
+                };
+
+                var rhs_shifted: Node(Object) = .{
+                    .tslice = rhs.tslice,
+                    .val = .{
+                        .name = rhs.val.name,
+                        .portlist = try self.arena.alloc(Node(Object), rhs_portlist.len),
+                    },
+                };
+
+                for (0..rhs_portlist.len - 1) |idx| {
+                    rhs_shifted.val.portlist.?[idx + 1] = rhs_portlist[idx];
+                }
+
+                rhs_shifted.val.portlist.?[0] = lhs;
+
+                const pair: Node(ActivePair) = .{
+                    .tslice = .combine(lhs_shifted.tslice, rhs_shifted.tslice),
+                    .val = .{
+                        .lhs = lhs_shifted,
+                        .rhs = rhs_shifted,
+                    },
+                };
+
+                try list.append(self.intermediate_list_allocator, pair);
+                if (self.peek().tag == .comma) {
+                    _ = self.advance();
+                    continue :objtoken self.peek().tag;
+                }
+            } else {
+                self.err = ParserError.expected_agent(binder);
+                return Error.ErrorDuringParsing;
             }
         },
         else => {
-            self.err = .{
-                .tag = .expected_object,
-                .token = self.peek(),
-            };
+            self.err = ParserError.expected_statement(self.peek());
             return Error.ErrorDuringParsing;
         },
     }
 
-    return try toArenaOwnedSlice(AST.Node(AST.ActivePair), &list, self.intermediate_list_allocator, self.arena);
+    return try toArenaOwnedSlice(Node(ActivePair), &list, self.intermediate_list_allocator, self.arena);
 }
 
-pub fn parseRule(self: *Parser, lhs: AST.Node(AST.Object)) !AST.Rule {
-    var ret = AST.Rule{
+pub fn parseRule(self: *Parser, lhs: Node(Object)) !Rule {
+    var ret = Rule{
         .lhs = lhs,
         .rhs = try self.parseObject(),
         .rule_exprs = undefined,
     };
     const tentry = self.peek().tag;
 
-    var list = try std.ArrayList(AST.RuleExpression).initCapacity(self.intermediate_list_allocator, 1);
+    var list = try std.ArrayList(RuleExpression).initCapacity(self.intermediate_list_allocator, 1);
     errdefer list.deinit(self.intermediate_list_allocator);
 
     switch (tentry) {
         .fatrightarrow => {
             _ = self.advance();
-            const rule_expr: AST.RuleExpression = .{
+            const rule_expr: RuleExpression = .{
                 .expr = null,
                 .pairs = try self.parsePairs(),
             };
@@ -449,7 +544,7 @@ pub fn parseRule(self: *Parser, lhs: AST.Node(AST.Object)) !AST.Rule {
                     break :blk null;
                 } else try self.parseExpression(0);
                 try self.expectTag(.fatrightarrow, &self.advance());
-                const rule_expr: AST.RuleExpression = .{
+                const rule_expr: RuleExpression = .{
                     .expr = expr,
                     .pairs = try self.parsePairs(),
                 };
@@ -465,13 +560,13 @@ pub fn parseRule(self: *Parser, lhs: AST.Node(AST.Object)) !AST.Rule {
         },
     }
 
-    ret.rule_exprs = try toArenaOwnedSlice(AST.RuleExpression, &list, self.intermediate_list_allocator, self.arena);
+    ret.rule_exprs = try toArenaOwnedSlice(RuleExpression, &list, self.intermediate_list_allocator, self.arena);
     return ret;
 }
 
-pub fn parseStmt(self: *Parser) !?AST.Node(AST.Statement) {
+pub fn parseStmt(self: *Parser) !?Node(Statement) {
     const tentry = self.peek();
-    var ret: AST.Node(AST.Statement) = .{ .val = undefined, .tslice = .{ .start = @intCast(self.index), .end = undefined } };
+    var ret: Node(Statement) = .{ .val = undefined, .tslice = .{ .start = @intCast(self.index), .end = undefined } };
     switch (tentry.tag) {
         .eof, .semicolon => {
             if (tentry.tag == .eof) {
@@ -533,8 +628,8 @@ pub fn parseStmt(self: *Parser) !?AST.Node(AST.Statement) {
     return ret;
 }
 
-pub fn parseProgram(self: *Parser) !AST.Program {
-    var list = std.ArrayList(AST.Node(AST.Statement)).empty;
+pub fn parseProgram(self: *Parser) !Program {
+    var list = std.ArrayList(Node(Statement)).empty;
     errdefer list.deinit(self.intermediate_list_allocator);
 
     var maybe_stmt = try self.parseStmt();
@@ -546,7 +641,7 @@ pub fn parseProgram(self: *Parser) !AST.Program {
 
     return .{
         .statements = try toArenaOwnedSlice(
-            AST.Node(AST.Statement),
+            Node(Statement),
             &list,
             self.intermediate_list_allocator,
             self.arena,
@@ -554,13 +649,15 @@ pub fn parseProgram(self: *Parser) !AST.Program {
     };
 }
 
-fn parseNameList(self: *Parser) ![]AST.Name {
+fn parseNameList(self: *Parser) ![]Name {
     const tentry = self.advance();
 
     if (tentry.tag != .identifier) {
-        self.unexpected_token(.identifier, &tentry);
+        self.err = ParserError.unexpected_token(.identifier, &tentry);
+        return Error.ErrorDuringParsing;
     }
-    var list = std.ArrayList(AST.Name).empty;
+
+    var list = std.ArrayList(Name).empty;
     errdefer list.deinit(self.intermediate_list_allocator);
 
     try list.append(self.intermediate_list_allocator, .{ .val = tentry.content.? });
@@ -569,7 +666,7 @@ fn parseNameList(self: *Parser) ![]AST.Name {
         try list.append(self.intermediate_list_allocator, .{ .val = t.content.? });
     }
 
-    return try toArenaOwnedSlice(AST.Name, &list, self.intermediate_list_allocator, self.arena);
+    return try toArenaOwnedSlice(Name, &list, self.intermediate_list_allocator, self.arena);
 }
 
 /// Assuming gpa owns the std.ArrayList(T), converts to owned list,
@@ -664,7 +761,7 @@ test "free stmt" {
 
 const BufferedStringStream = Printing.BufferedStringStream;
 
-fn writeObject(stream: *BufferedStringStream, obj: AST.Object) !void {
+fn writeObject(stream: *BufferedStringStream, obj: Object) !void {
     try stream.write("{s}", .{obj.name});
     if (obj.portlist) |portlist| {
         try stream.write("(", .{});
@@ -675,7 +772,7 @@ fn writeObject(stream: *BufferedStringStream, obj: AST.Object) !void {
     }
 }
 
-fn toS_Expression_nested(expr: AST.Expression, stream: *BufferedStringStream) !void {
+fn toS_Expression_nested(expr: Expression, stream: *BufferedStringStream) !void {
     switch (expr) {
         .atom => |obj| {
             try writeObject(stream, obj.val);
@@ -692,7 +789,7 @@ fn toS_Expression_nested(expr: AST.Expression, stream: *BufferedStringStream) !v
 }
 
 // Returns a buffer that is bigger than the actual data
-fn toS_Expression(gpa: std.mem.Allocator, expr: AST.Expression) ![:0]const u8 {
+fn toS_Expression(gpa: std.mem.Allocator, expr: Expression) ![:0]const u8 {
     const max_buffer_size = 512;
     var stream = try BufferedStringStream.init(gpa, max_buffer_size);
     try toS_Expression_nested(expr, &stream);
@@ -704,15 +801,15 @@ fn toS_Expression(gpa: std.mem.Allocator, expr: AST.Expression) ![:0]const u8 {
 test "hand-written expr to s-expr" {
     const gpa = std.testing.allocator;
 
-    const a_expr = try gpa.create(AST.Node(AST.Expression));
+    const a_expr = try gpa.create(Node(Expression));
     defer gpa.destroy(a_expr);
-    const b_expr = try gpa.create(AST.Node(AST.Expression));
+    const b_expr = try gpa.create(Node(Expression));
     defer gpa.destroy(b_expr);
 
     a_expr.* = .{ .tslice = undefined, .val = .{ .atom = .{ .tslice = undefined, .val = .{ .name = "a", .portlist = null } } } };
     b_expr.* = .{ .tslice = undefined, .val = .{ .atom = .{ .tslice = undefined, .val = .{ .name = "b", .portlist = null } } } };
 
-    const expr = AST.Expression{ .binary_op = .{
+    const expr = Expression{ .binary_op = .{
         .lhs = a_expr,
         .rhs = b_expr,
         .tag = .eq,

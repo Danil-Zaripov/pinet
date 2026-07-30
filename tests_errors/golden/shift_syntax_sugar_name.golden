@@ -1,0 +1,4 @@
+Syntax error on line 12 index 10: Expected agent, found name y_name
+
+    x << y_name;
+         ^~~~~~

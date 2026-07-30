@@ -8,6 +8,13 @@ pub const nil_list_ident = "Nil";
 pub const TokenSlice = struct {
     start: u32,
     end: u32,
+
+    pub fn combine(left: TokenSlice, right: TokenSlice) TokenSlice {
+        return .{
+            .start = left.start,
+            .end = right.end,
+        };
+    }
 };
 
 pub fn Node(comptime T: type) type {

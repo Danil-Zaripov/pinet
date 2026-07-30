@@ -1,0 +1,12 @@
+
+// fine
+A(x, y) >< B() =>
+    x << R(y);
+
+// fine
+A(x, y) >< C() =>
+    (x, y) << (());
+
+// error
+A(x, y_name) >< C() =>
+    x << y_name;
