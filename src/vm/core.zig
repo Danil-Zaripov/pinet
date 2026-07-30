@@ -173,29 +173,22 @@ pub fn objToValue(c: *Core, obj: AST.Object) !Value {
         return objToValueNumber(c, num);
     }
 
-    if (obj.portlist) |_| {
+    if (obj.portlist != null) {
         return objToValueAgent(c, obj);
     }
 
     if (c.runtime.associated_names.getPtr(obj.name)) |maybe_name| {
         if (maybe_name.*) |name| {
+            maybe_name.* = null;
             if (name.port) |port| {
                 defer c.name_heap.freeOne(name);
-                // if the names are interconnected, then
-                // we have to free from the cyclic crossreference
-                if (port == .name) {
-                    if (port.name.port) |other_name| {
-                        if (other_name == .name and other_name.name == name) {
-                            port.name.port = null;
-                        }
-                    }
-                }
-                // free name
-                maybe_name.* = null;
+
                 return port;
             } else {
                 return .{ .name = name };
             }
+        } else {
+            // Implicitly reusing
         }
     }
 
