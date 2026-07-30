@@ -48,6 +48,11 @@ pub const IdCountingHashMap = struct {
         };
     }
 
+    pub fn isNumber(self: *const IdCountingHashMap, id: Agent.Id) bool {
+        _ = self;
+        return id == Builtin.BuiltinNameMap.get(Builtin.number_builtin_ident).?;
+    }
+
     pub fn findKey(self: *const IdCountingHashMap, val: Agent.Id) ?[]const u8 {
         var iterator = self.map.iterator();
         while (iterator.next()) |kv| {

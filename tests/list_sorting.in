@@ -19,7 +19,7 @@ Dup(lst1, lst2) ~ lst;
 msort(ret) >< [] => ret ~ [];
 // Parentheses are unnecessary. They are here to assert that Tuple1
 // is omitted.
-msort(ret) >< (x:xs) => ms_tail(ret, x) ~ x;
+msort(ret) >< (x:xs) => ms_tail(ret, x) ~ xs;
 
 ms_tail(ret, n) >< [] => ret ~ [n];
 ms_tail(ret, n) >< x:xs =>

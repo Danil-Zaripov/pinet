@@ -98,7 +98,8 @@ const max_cycle_length = 1000;
 
 fn getAgentSymbolNested(runtime: *const Runtime, ag: *const Agent, stream: *BufferedStringStream) !void {
     const name = runtime.agent_id_map.findKey(ag.id);
-    try stream.write("{s}(", .{name.?});
+    if (!runtime.agent_id_map.isNumber(ag.id) and !Config.debug_printing.print_interactions)
+        try stream.write("{s}(", .{name.?});
     {
         var idx: usize = 0;
         outer: while (ag.ports[idx]) |port| : (idx += 1) {
@@ -143,7 +144,8 @@ fn getAgentSymbolNested(runtime: *const Runtime, ag: *const Agent, stream: *Buff
             }
         }
     }
-    try stream.write(")", .{});
+    if (!runtime.agent_id_map.isNumber(ag.id) and !Config.debug_printing.print_interactions)
+        try stream.write(")", .{});
 }
 
 pub fn getAgentSymbol(runtime: *const Runtime, gpa: std.mem.Allocator, ag: *const Agent) ![]const u8 {
