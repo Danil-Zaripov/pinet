@@ -403,7 +403,12 @@ fn parseObject(self: *Parser) !Node(Object) {
         }
 
         if (tuple) {
-            ret.val.name = try self.getTupleName(ret.val.portlist.?.len);
+            if (ret.val.portlist.?.len != 1) {
+                ret.val.name = try self.getTupleName(ret.val.portlist.?.len);
+            } else {
+                ret = ret.val.portlist.?[0];
+                return ret;
+            }
         }
     }
     ret.tslice.end = @intCast(self.index - 1);

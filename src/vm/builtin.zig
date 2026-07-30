@@ -117,6 +117,7 @@ pub const Eraser = struct {
 
     pub fn erase(c: *Core, agent: *Agent) !void {
         defer c.agent_heap.freeOne(agent);
+        // This unwrap may fail in case of (w, F(w)) net on "free w;"
         const ag_arity = c.runtime.agent_arities.map.get(agent.id).?;
         for (0..ag_arity) |idx| {
             const port = agent.ports[idx].?;

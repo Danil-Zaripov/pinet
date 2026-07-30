@@ -1,4 +1,4 @@
-Syntax error on line 12 index 10: Expected agent, found name y_name
+Syntax error on line 8 index 17: Expected port, found empty: )
 
-    x << y_name;
-         ^~~~~~
+    (x, y) << (());
+                ^

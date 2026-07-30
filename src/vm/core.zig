@@ -32,7 +32,7 @@ const EquationUnnormalized = Types.EquationUnnormalized;
 const Core = @This();
 const Self = Core;
 
-const number_of_registers = 100;
+const number_of_registers = 256;
 
 // the heaps should be in the runtime!
 name_heap: Memory.Heap(Name),
@@ -286,8 +286,9 @@ pub fn runProgram(c: *Core, program: AST.Program) !void {
                     if (c.runtime.associated_names.get(name)) |maybe_wire| {
                         defer _ = c.runtime.associated_names.remove(name);
                         if (maybe_wire) |wire| {
-                            wire.unchain(c.name_heap);
-                            if (wire.port) |port| {
+                            const traversed = wire.traverseFree(c.name_heap);
+                            defer c.name_heap.freeOne(traversed);
+                            if (traversed.port) |port| {
                                 // of course, there shouldn't be anything other than an agent
                                 try Builtin.Eraser.erase(c, port.agent);
                             }

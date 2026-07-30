@@ -17,7 +17,9 @@ Dup(lst1, lst2) ~ lst;
 // Merge sort from Inpla
 
 msort(ret) >< [] => ret ~ [];
-msort(ret) >< x:xs => ms_tail(ret, x) ~ xs;
+// Parentheses are unnecessary. They are here to assert that Tuple1
+// is omitted.
+msort(ret) >< (x:xs) => ms_tail(ret, x) ~ x;
 
 ms_tail(ret, n) >< [] => ret ~ [n];
 ms_tail(ret, n) >< x:xs =>
