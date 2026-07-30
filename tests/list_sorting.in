@@ -17,26 +17,26 @@ Dup(lst1, lst2) ~ lst;
 // Merge sort from Inpla
 
 msort(ret) >< [] => ret ~ [];
-msort(ret) >< Cons(x, xs) => ms_tail(ret, x) ~ xs;
+msort(ret) >< x:xs => ms_tail(ret, x) ~ xs;
 
 ms_tail(ret, n) >< [] => ret ~ [n];
-ms_tail(ret, n) >< Cons(x, xs) =>
-	split(left,right) ~ Cons(n, Cons(x, xs)),
+ms_tail(ret, n) >< x:xs =>
+	split(left,right) ~ n:x:xs,
 	msort(a) ~ left,
 	msort(b) ~ right,
 	merge(ret, b) ~ a;
 
 merge(ret, snd) >< [] => ret~snd;
-merge(ret, snd) >< Cons(x, xs) => mergeCC(ret, x, xs) ~ snd;
+merge(ret, snd) >< x:xs => mergeCC(ret, x, xs) ~ snd;
 
-mergeCC(ret, y, ys) >< [] => ret ~ Cons(y, ys);
-mergeCC(ret, y, ys) >< Cons(x, xs)
-| x <= y    => ret ~ Cons(x, cnt), mergeCC(cnt, y, ys) ~ xs
-| otherwise => ret ~ Cons(y, cnt), mergeCC(cnt, x, xs) ~ ys;
+mergeCC(ret, y, ys) >< [] => ret ~ y:ys;
+mergeCC(ret, y, ys) >< x:xs
+| x <= y    => ret ~ x:cnt, mergeCC(cnt, y, ys) ~ xs
+| otherwise => ret ~ y:cnt, mergeCC(cnt, x, xs) ~ ys;
 
 split(right, left) >< [] => right~[], left~[];
-split(right, left) >< Cons(x, xs) =>
-	right ~ Cons(x, cntl),
+split(right, left) >< x:xs =>
+	right ~ x:cntl,
 	left ~ cntr,
 	split(cntr, cntl) ~ xs;
 

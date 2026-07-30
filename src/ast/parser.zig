@@ -407,7 +407,28 @@ fn parseObject(self: *Parser) !Node(Object) {
         }
     }
     ret.tslice.end = @intCast(self.index - 1);
-    return ret;
+    if (self.peek().tag != .colon) {
+        return ret;
+    }
+    // x:xs syntax sugar
+    _ = self.advance();
+
+    const another_object = try self.parseObject();
+
+    const cons: Node(Object) = .{
+        .tslice = .{
+            .start = ret.tslice.start,
+            .end = @intCast(self.index - 1),
+        },
+        .val = .{
+            .name = AST.cons_list_ident,
+            .portlist = try self.arena.alloc(Node(Object), 2),
+        },
+    };
+    cons.val.portlist.?[0] = ret;
+    cons.val.portlist.?[1] = another_object;
+
+    return cons;
 }
 
 fn getTupleName(self: *Parser, size: usize) ![]const u8 {
