@@ -149,7 +149,7 @@ fn getAgentSymbolNested(runtime: *const Runtime, ag: *const Agent, stream: *Buff
 }
 
 pub fn getAgentSymbol(runtime: *const Runtime, gpa: std.mem.Allocator, ag: *const Agent) ![]const u8 {
-    const max_agent_name_size = 1024;
+    const max_agent_name_size = 1024 * 1024;
     var stream = try BufferedStringStream.init(gpa, max_agent_name_size);
     try getAgentSymbolNested(runtime, ag, &stream);
     return stream.buffer;

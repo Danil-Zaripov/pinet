@@ -49,23 +49,44 @@ pub const ParserError = struct {
         };
     }
 
-    pub fn expected_agent(token: Token) ParserError {
+    fn unexpected_eof() ParserError {
         return .{
-            .tag = .expected_agent,
-            .token = token,
+            .tag = .unexpected_eof,
+            .token = undefined,
         };
     }
 
-    pub fn expected_object(token: Token) ParserError {
+    fn expected_object(token: Token) ParserError {
         return .{
             .tag = .expected_object,
             .token = token,
         };
     }
 
-    pub fn expected_statement(token: Token) ParserError {
+    fn expected_statement(token: Token) ParserError {
         return .{
             .tag = .expected_statement,
+            .token = token,
+        };
+    }
+
+    fn expected_expression(token: Token) ParserError {
+        return .{
+            .tag = .expected_expression,
+            .token = token,
+        };
+    }
+
+    fn expected_agent(token: Token) ParserError {
+        return .{
+            .tag = .expected_agent,
+            .token = token,
+        };
+    }
+
+    fn expected_port(token: Token) ParserError {
+        return .{
+            .tag = .expected_port,
             .token = token,
         };
     }
@@ -74,13 +95,6 @@ pub const ParserError = struct {
         return .{
             .tag = .{ .unexpected_token = .{ .expected = expected } },
             .token = actual.*,
-        };
-    }
-
-    fn expected_port(token: Token) ParserError {
-        return .{
-            .tag = .expected_port,
-            .token = token,
         };
     }
 
@@ -169,10 +183,7 @@ fn getTokenInfixBP(self: *Parser, token: *const Token) !struct { i32, i32 } {
         .eq => .{ 30, 31 },
         .greater, .geq, .less, .leq => .{ 40, 41 },
         else => {
-            self.err = .{
-                .token = token.*,
-                .tag = .expected_expression,
-            };
+            self.err = .expected_expression(token.*);
             return Error.ErrorDuringParsing;
         },
     };
@@ -203,10 +214,7 @@ fn parseExpression(self: *Parser, min_bp: i32) !*Node(Expression) {
             .less => .less,
             .leq => .leq,
             else => {
-                self.err = .{
-                    .token = self.peek(),
-                    .tag = .expected_expression,
-                };
+                self.err = .expected_expression(self.peek());
                 return Error.ErrorDuringParsing;
             },
         };
@@ -248,18 +256,12 @@ fn parseObjList(self: *Parser) error{ NoSpaceLeft, OutOfMemory, ErrorDuringParsi
                 if (self.peek().tag == .comma) {
                     _ = self.advance();
                 } else if (self.peek().tag != .rparen) {
-                    self.err = .{
-                        .token = self.peek(),
-                        .tag = .expected_object,
-                    };
+                    self.err = .expected_object(self.peek());
                     return Error.ErrorDuringParsing;
                 }
             },
             else => {
-                self.err = .{
-                    .token = self.peek(),
-                    .tag = .expected_object,
-                };
+                self.err = .expected_object(self.peek());
                 return Error.ErrorDuringParsing;
             },
         }
@@ -376,10 +378,7 @@ fn parseObject(self: *Parser) !Node(Object) {
                 tuple = true;
             },
             else => {
-                self.err = ParserError{
-                    .tag = .expected_object,
-                    .token = tentry,
-                };
+                self.err = .expected_object(tentry);
                 return Error.ErrorDuringParsing;
             },
         }
@@ -452,7 +451,7 @@ fn getTupleName(self: *Parser, size: usize) ![]const u8 {
 /// Should be invoked when checking the peeking token, not advanced.
 fn expectTag(self: *Parser, expected: Token.Tag, actual: *const Token) Error!void {
     if (expected != actual.tag) {
-        self.err = ParserError.unexpected_token(expected, actual);
+        self.err = .unexpected_token(expected, actual);
         return Error.ErrorDuringParsing;
     }
 }
@@ -485,14 +484,14 @@ fn parsePairs(self: *Parser) ![]Node(ActivePair) {
                 const rhs = try self.parseObject();
 
                 const rhs_portlist = rhs.val.portlist orelse {
-                    self.err = ParserError.expected_agent(self.tokens[rhs.tslice.start]);
+                    self.err = .expected_agent(self.tokens[rhs.tslice.start]);
                     return Error.ErrorDuringParsing;
                 };
 
                 defer self.arena.free(rhs_portlist);
 
                 if (rhs_portlist.len < 1) {
-                    self.err = ParserError.expected_port(self.tokens[rhs.tslice.end]);
+                    self.err = .expected_port(self.tokens[rhs.tslice.end]);
                     return Error.ErrorDuringParsing;
                 }
 
@@ -529,12 +528,12 @@ fn parsePairs(self: *Parser) ![]Node(ActivePair) {
                     continue :objtoken self.peek().tag;
                 }
             } else {
-                self.err = ParserError.expected_agent(binder);
+                self.err = .expected_agent(binder);
                 return Error.ErrorDuringParsing;
             }
         },
         else => {
-            self.err = ParserError.expected_statement(self.peek());
+            self.err = .expected_statement(self.peek());
             return Error.ErrorDuringParsing;
         },
     }
@@ -578,10 +577,7 @@ pub fn parseRule(self: *Parser, lhs: Node(Object)) !Rule {
             }
         },
         else => {
-            self.err = .{
-                .token = self.peek(),
-                .tag = .expected_statement,
-            };
+            self.err = .expected_statement(self.peek());
             return Error.ErrorDuringParsing;
         },
     }
@@ -623,10 +619,7 @@ pub fn parseStmt(self: *Parser) !?Node(Statement) {
                     ret.val = .{ .print_stmt = .{ .val = lhs.val.name } };
                 },
                 else => {
-                    self.err = .{
-                        .token = self.peek(),
-                        .tag = .expected_statement,
-                    };
+                    self.err = .expected_statement(self.peek());
                     return Error.ErrorDuringParsing;
                 },
             }
@@ -638,10 +631,7 @@ pub fn parseStmt(self: *Parser) !?Node(Statement) {
             ret.val = .{ .use_stmt = str.content.? };
         },
         else => {
-            self.err = .{
-                .token = self.peek(),
-                .tag = .expected_statement,
-            };
+            self.err = .expected_statement(self.peek());
             return Error.ErrorDuringParsing;
         },
     }
@@ -679,7 +669,7 @@ fn parseNameList(self: *Parser) ![]Name {
     const tentry = self.advance();
 
     if (tentry.tag != .identifier) {
-        self.err = ParserError.unexpected_token(.identifier, &tentry);
+        self.err = .unexpected_token(.identifier, &tentry);
         return Error.ErrorDuringParsing;
     }
 
