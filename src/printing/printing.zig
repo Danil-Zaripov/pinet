@@ -98,53 +98,52 @@ const max_cycle_length = 1000;
 
 fn getAgentSymbolNested(runtime: *const Runtime, ag: *const Agent, stream: *BufferedStringStream) !void {
     const name = runtime.agent_id_map.findKey(ag.id);
-    if (!runtime.agent_id_map.isNumber(ag.id) and !Config.debug_printing.print_interactions)
+    if (!runtime.agent_id_map.isNumber(ag.id) or Config.debug_printing.print_interactions)
         try stream.write("{s}(", .{name.?});
-    {
-        var idx: usize = 0;
-        outer: while (ag.ports[idx]) |port| : (idx += 1) {
-            if (idx != 0) {
-                try stream.write(", ", .{});
-            }
-            switch (port) {
-                .name => |_wire| {
-                    var wire = _wire;
-                    var cnt: u32 = 0;
 
-                    while (wire.port) |wired_to| {
-                        if (Config.debug_printing.print_interactions) {
-                            try stream.write("(n)", .{});
-                        }
-                        if (wired_to == .agent) {
-                            try getAgentSymbolNested(runtime, wired_to.agent, stream);
-                            continue :outer;
-                        } else {
-                            wire = wired_to.name;
-                        }
-                        cnt = cnt + 1;
-                        if (cnt > max_cycle_length) {
-                            break;
-                        }
+    const arity = runtime.agent_arities.map.get(ag.id).?;
+
+    for (0..arity) |idx| {
+        const port = ag.ports[idx].?;
+        if (idx != 0) {
+            try stream.write(", ", .{});
+        }
+        port_switch: switch (port) {
+            .name => |_wire| {
+                var wire = _wire;
+                var cnt: u32 = 0;
+
+                while (wire.port) |wired_to| {
+                    Debug.log(.print_interactions, "(n)", .{});
+
+                    if (wired_to == .agent) {
+                        continue :port_switch wired_to;
+                    } else {
+                        wire = wired_to.name;
                     }
-                    try stream.write("<NAME{}>", .{cnt});
-                },
-                .agent => |new_ag| {
-                    try getAgentSymbolNested(runtime, new_ag, stream);
-                },
-                .special => |special| {
-                    switch (special) {
-                        .float => |float| {
-                            try stream.write("{}", .{float});
-                        },
-                        .integer => |integer| {
-                            try stream.write("{}", .{integer});
-                        },
+                    cnt = cnt + 1;
+                    if (cnt > max_cycle_length) {
+                        break;
                     }
-                },
-            }
+                }
+                try stream.write("<NAME{}>", .{cnt});
+            },
+            .agent => |new_ag| {
+                try getAgentSymbolNested(runtime, new_ag, stream);
+            },
+            .special => |special| {
+                switch (special) {
+                    .float => |float| {
+                        try stream.write("{}", .{float});
+                    },
+                    .integer => |integer| {
+                        try stream.write("{}", .{integer});
+                    },
+                }
+            },
         }
     }
-    if (!runtime.agent_id_map.isNumber(ag.id) and !Config.debug_printing.print_interactions)
+    if (!runtime.agent_id_map.isNumber(ag.id) or Config.debug_printing.print_interactions)
         try stream.write(")", .{});
 }
 

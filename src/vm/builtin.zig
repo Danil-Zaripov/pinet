@@ -143,11 +143,6 @@ pub const Eraser = struct {
 pub fn eraser(c: *Core, self: *Agent, other: *Agent) BuiltinAgentError!void {
     defer c.agent_heap.freeOne(self);
 
-    if (Config.debug_printing.print_interactions) {
-        std.debug.print("Freeing ", .{});
-        Printing.tryPrint(c.runtime, c.runtime.gpa, Value{ .agent = other }) catch {};
-    }
-
     try Eraser.erase(c, other);
 }
 

@@ -1,4 +1,4 @@
-Imported file tests_errors/nested/double_use.in
+Imported file tests_errors/compilation/nested/double_use.in
 Rule compilation error on line 2 index 3: Name used more than twice
 A(reused) >< x => reused ~ Eraser(), reused ~ x;
   ^~~~~~                             ^~~~~~
