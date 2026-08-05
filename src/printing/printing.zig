@@ -104,22 +104,24 @@ fn getAgentSymbolNested(runtime: *const Runtime, ag: *const Agent, stream: *Buff
     const arity = runtime.agent_arities.map.get(ag.id).?;
 
     for (0..arity) |idx| {
-        const port = ag.ports[idx];
+        var port = ag.ports[idx];
         if (idx != 0) {
             try stream.write(", ", .{});
         }
-        port_switch: switch (port) {
-            .name => |_wire| {
-                var wire = _wire;
+        port_switch: switch (port.tag) {
+            .name => {
+                var wire = port.getName();
                 var cnt: u32 = 0;
 
-                while (wire.port) |wired_to| {
+                while (wire.port.isNonEmpty()) {
+                    const wired_to = wire.port;
                     Debug.log(.print_interactions, "(n)", .{});
 
-                    if (wired_to == .agent) {
-                        continue :port_switch wired_to;
+                    if (wired_to.tag == .agent) {
+                        port = wired_to;
+                        continue :port_switch port.tag;
                     } else {
-                        wire = wired_to.name;
+                        wire = wired_to.getName();
                     }
                     cnt = cnt + 1;
                     if (cnt > max_cycle_length) {
@@ -128,19 +130,21 @@ fn getAgentSymbolNested(runtime: *const Runtime, ag: *const Agent, stream: *Buff
                 }
                 try stream.write("<NAME{}>", .{cnt});
             },
-            .agent => |new_ag| {
-                try getAgentSymbolNested(runtime, new_ag, stream);
+            .agent => {
+                try getAgentSymbolNested(runtime, port.getAgent(), stream);
             },
-            .special => |special| {
-                switch (special) {
-                    .float => |float| {
-                        try stream.write("{}", .{float});
+            .special => {
+                const special = port.getSpecial();
+                switch (special.tag) {
+                    .float => {
+                        try stream.write("{}", .{special.num.float});
                     },
-                    .integer => |integer| {
-                        try stream.write("{}", .{integer});
+                    .integer => {
+                        try stream.write("{}", .{special.num.integer});
                     },
                 }
             },
+            .empty => unreachable,
         }
     }
     if (!runtime.agent_id_map.isNumber(ag.id) or Config.debug_printing.print_interactions)
@@ -157,19 +161,19 @@ pub fn getAgentSymbol(runtime: *const Runtime, gpa: std.mem.Allocator, ag: *cons
 pub fn tryPrint(runtime: *const Runtime, gpa: std.mem.Allocator, val: Value) !void {
     var cur = val;
     var idx: u32 = 0;
-    while (cur == .name) : ({
-        cur = cur.name.port.?;
+    while (cur.tag == .name) : ({
+        cur = cur.getName().port;
         idx += 1;
     }) {
         Debug.log(.print_interactions, "(n)", .{});
 
         if (idx > max_cycle_length) {
-            std.debug.print("{any} is cyclic\n", .{val.name.*});
+            std.debug.print("{any} is cyclic\n", .{val.getName().*});
             return;
         }
     }
 
-    const bytes = getAgentSymbol(runtime, gpa, cur.agent) catch |err| {
+    const bytes = getAgentSymbol(runtime, gpa, cur.getAgent()) catch |err| {
         if (err == error.NoSpaceLeft) {
             std.debug.print("Agent symbol is too long to print\n", .{});
             return;

@@ -6,23 +6,6 @@ pub const Condition = @import("condition.zig");
 const Types = @import("shared_runtime").Types;
 const AST = @import("ast");
 
-pub fn getNumberType(str: []const u8) !Types.Special {
-    const contains = struct {
-        pub fn contains(s: []const u8, selected: u8) bool {
-            for (s) |char| {
-                if (char == selected) return true;
-            }
-            return false;
-        }
-    }.contains;
-
-    if (contains(str, '.')) {
-        return Types.Special{ .float = try std.fmt.parseFloat(f32, str) };
-    } else {
-        return Types.Special{ .integer = try std.fmt.parseInt(i32, str, 10) };
-    }
-}
-
 /// Assuming gpa owns the std.ArrayList(T), converts to owned list,
 /// dupes the list using arena and returns it.
 pub fn toArenaOwnedSlice(comptime T: type, lst: *std.ArrayList(T), gpa: std.mem.Allocator, arena: std.mem.Allocator) ![]T {
