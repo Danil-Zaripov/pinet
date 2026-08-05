@@ -37,8 +37,6 @@ pub fn main(init: std.process.Init) !void {
     };
     defer res.deinit();
 
-    var filepath: []const u8 = "../QTreePinet/src/lists.in";
-
     if (res.args.help != 0) {
         var stdio = std.Io.File.stdin().writer(io, &.{});
         try stdio.interface.print("{s}", .{help});
@@ -47,11 +45,10 @@ pub fn main(init: std.process.Init) !void {
 
     if (res.args.threads) |n|
         std.debug.print("you specified -t {}, but it is not yet developed.\n", .{n});
-    if (res.args.filepath) |fp| {
-        filepath = fp;
-    } else {
-        std.debug.print("File not specified, executing {s}\nConsider using \"--help\"\n", .{filepath});
-    }
+    const filepath = res.args.filepath orelse {
+        std.debug.print("File not specified. \nConsider using \"--help\".\n", .{});
+        std.process.exit(1);
+    };
 
     const contents = try Io.Dir.readFileAllocOptions(
         Io.Dir.cwd(),
