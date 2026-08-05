@@ -51,7 +51,6 @@ pub fn createEmptyName(c: *Core) !*Name {
 pub fn createAgent(c: *Core, id: Agent.Id) !*Agent {
     const ag = try c.agent_heap.allocOne();
     ag.id = id;
-    ag.ports = @splat(null);
     return ag;
 }
 
@@ -146,7 +145,7 @@ pub fn objToValueAgent(
     const arity = try c.runtime.agent_arities.get(agent_id, portlist.len);
     var agent = try c.agent_heap.allocOne();
 
-    agent.* = .{ .id = agent_id, .ports = @splat(null) };
+    agent.* = .{ .id = agent_id };
     {
         var idx: u8 = 0;
         while (idx < arity) : (idx += 1) {
@@ -206,7 +205,7 @@ pub fn execInstructions(
         switch (instruction.tag) {
             .mk_agent => |id| {
                 const ag = try c.agent_heap.allocOne();
-                ag.* = .{ .id = id, .ports = @splat(null) };
+                ag.* = .{ .id = id };
                 c.registers[instruction.operand1] = .{ .agent = ag };
             },
             .mk_special => |special| {
@@ -231,13 +230,13 @@ pub fn execInstructions(
                 const larity = c.runtime.agent_arities.map.get(lagent.id).?;
                 var idx: u16 = 0;
                 for (0..larity) |port_idx| {
-                    c.registers[idx] = lagent.ports[port_idx].?;
+                    c.registers[idx] = lagent.ports[port_idx];
                     idx += 1;
                 }
                 if (!wildcarded) {
                     const rarity = c.runtime.agent_arities.map.get(ragent.id).?;
                     for (0..rarity) |port_idx| {
-                        c.registers[idx] = ragent.ports[port_idx].?;
+                        c.registers[idx] = ragent.ports[port_idx];
                         idx += 1;
                     }
                 } else {
