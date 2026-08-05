@@ -38,19 +38,20 @@ fn evalCondition(c: *Core, lagent: *Agent, ragent: *Agent, instructions: []Condi
         switch (instr.tag) {
             .put_port => |port| {
                 const owner = if (port.owner == .lhs) lagent else ragent;
-                const value = if (port.idx) |idx| owner.ports[idx] else Value{ .agent = owner };
+                const value = if (port.idx) |idx| owner.ports[idx] else Value.agent(owner);
                 const agent = agent: {
-                    switch (value) {
-                        .name => |name| {
+                    switch (value.tag) {
+                        .name => {
+                            const name = value.getName();
                             const traversed = name.traverseFree(c.name_heap);
-                            if (traversed.port) |traversed_port| {
-                                break :agent traversed_port.agent;
+                            if (traversed.port.isNonEmpty()) {
+                                break :agent traversed.port.getAgent();
                             } else {
                                 std.debug.print("No value on name\n", .{});
                                 return EvaluationError.BadSecondaryValue;
                             }
                         },
-                        .agent => |agent| break :agent agent,
+                        .agent => break :agent value.getAgent(),
                         else => unreachable,
                     }
                 };
@@ -66,7 +67,7 @@ fn evalCondition(c: *Core, lagent: *Agent, ragent: *Agent, instructions: []Condi
                 }
             },
             .get_special => {
-                registers[instr.result] = Condition.Register.CondValue{ .special = registers[instr.lhs].agent.ports[0].special };
+                registers[instr.result] = Condition.Register.CondValue{ .special = registers[instr.lhs].agent.ports[0].getSpecial() };
             },
             .put_constant => |special| {
                 registers[instr.result] = Condition.Register.CondValue{ .special = special };

@@ -44,7 +44,7 @@ runtime: *Runtime,
 
 pub fn createEmptyName(c: *Core) !*Name {
     const name = try c.name_heap.allocOne();
-    name.port = null;
+    name.port = .empty();
     return name;
 }
 
@@ -56,7 +56,7 @@ pub fn createAgent(c: *Core, id: Agent.Id) !*Agent {
 
 pub fn createNumberAgent(c: *Core, num: Types.Special) !*Agent {
     const ag = try createAgent(c, Builtin.BuiltinNameMap.get(Builtin.number_builtin_ident).?);
-    ag.ports[0] = Value{ .special = num };
+    ag.ports[0] = .special(num);
     return ag;
 }
 
@@ -129,11 +129,9 @@ pub fn objToValueNumber(c: *Core, num: AST.Object) !Value {
     const agent_id = Builtin.BuiltinNameMap.get(Builtin.number_builtin_ident).?;
     var agent = try c.createAgent(agent_id);
 
-    agent.ports[0] = Value{
-        .special = numtype,
-    };
+    agent.ports[0] = .special(numtype);
 
-    return .{ .agent = agent };
+    return .agent(agent);
 }
 
 pub fn objToValueAgent(
@@ -154,16 +152,16 @@ pub fn objToValueAgent(
         }
     }
 
-    return Value{ .agent = agent };
+    return .agent(agent);
 }
 
 pub fn objToValueName(c: *Core, obj: AST.Object) !Value {
     const name = try c.name_heap.allocOne();
 
-    name.* = .{ .port = null };
+    name.* = .{ .port = .empty() };
     try c.runtime.associated_names.put(obj.name, name);
 
-    return .{ .name = name };
+    return .name(name);
 }
 
 pub fn objToValue(c: *Core, obj: AST.Object) !Value {
@@ -179,12 +177,14 @@ pub fn objToValue(c: *Core, obj: AST.Object) !Value {
     if (c.runtime.associated_names.getPtr(obj.name)) |maybe_name| {
         if (maybe_name.*) |name| {
             maybe_name.* = null;
-            if (name.port) |port| {
+            if (name.port.isNonEmpty()) {
+                const port = name.port;
+
                 defer c.name_heap.freeOne(name);
 
                 return port;
             } else {
-                return .{ .name = name };
+                return .name(name);
             }
         } else {
             // Implicitly reusing
@@ -206,13 +206,13 @@ pub fn execInstructions(
             .mk_agent => |id| {
                 const ag = try c.agent_heap.allocOne();
                 ag.* = .{ .id = id };
-                c.registers[instruction.operand1] = .{ .agent = ag };
+                c.registers[instruction.operand1] = .agent(ag);
             },
             .mk_special => |special| {
-                c.registers[instruction.operand1] = .{ .special = special };
+                c.registers[instruction.operand1] = .special(special);
             },
             .put_into_port => |port_idx| {
-                c.registers[instruction.operand2].agent.ports[port_idx] = c.registers[instruction.operand1];
+                c.registers[instruction.operand2].getAgent().ports[port_idx] = c.registers[instruction.operand1];
             },
             .push => {
                 const eq = EquationUnnormalized{
@@ -223,8 +223,8 @@ pub fn execInstructions(
             },
             .mk_name => {
                 const name = try c.name_heap.allocOne();
-                name.* = .{ .port = null };
-                c.registers[instruction.operand1] = .{ .name = name };
+                name.* = .{ .port = .empty() };
+                c.registers[instruction.operand1] = .name(name);
             },
             .load_arguments => {
                 const larity = c.runtime.agent_arities.map.get(lagent.id).?;
@@ -240,7 +240,7 @@ pub fn execInstructions(
                         idx += 1;
                     }
                 } else {
-                    c.registers[idx] = .{ .agent = ragent };
+                    c.registers[idx] = .agent(ragent);
                     idx += 1;
                 }
             },
@@ -260,7 +260,8 @@ pub fn runProgram(c: *Core, program: AST.Program) !void {
             .print_stmt => |name_to_print| {
                 if (c.runtime.associated_names.get(name_to_print.val)) |maybe_name| {
                     if (maybe_name) |name| {
-                        if (name.port) |port| {
+                        if (name.port.isNonEmpty()) {
+                            const port = name.port;
                             try Printing.tryPrint(c.runtime, c.runtime.gpa, port);
                         } else {
                             std.debug.print("<MOVED>\n", .{});
@@ -280,9 +281,10 @@ pub fn runProgram(c: *Core, program: AST.Program) !void {
                         if (maybe_wire) |wire| {
                             const traversed = wire.traverseFree(c.name_heap);
                             defer c.name_heap.freeOne(traversed);
-                            if (traversed.port) |port| {
+                            if (traversed.port.isNonEmpty()) {
+                                const port = traversed.port;
                                 // of course, there shouldn't be anything other than an agent
-                                try Builtin.Eraser.erase(c, port.agent);
+                                try Builtin.Eraser.erase(c, port.getAgent());
                             }
                         }
                     } else {

@@ -174,7 +174,7 @@ pub fn compileNumber(
     const reg = ctx.scope.getFree();
     try ctx.appendInstruction(mk_agent(agent_id, reg));
     const special_reg = ctx.scope.getFree();
-    const special = try Compilation.getNumberType(obj.portlist.?[0].val.name);
+    const special = try Special.parse(obj.portlist.?[0].val.name);
     try ctx.appendInstruction(mk_special(special, special_reg));
     try ctx.appendInstruction(put_into_port(0, special_reg, reg));
 
