@@ -87,7 +87,7 @@ fn heapInit(comptime T: type, heap_size: usize, gpa: std.mem.Allocator) !Memory.
 
     basic_heap.* = switch (Config.heap) {
         .basic => try Memory.BasicHeap(T).init(gpa, heap_size),
-        .objpool => try Memory.ObjPool(T).init(gpa, heap_size),
+        .objpool => try Memory.ObjPool(T).init(gpa, heap_size, 1),
     };
 
     return basic_heap.heap();
