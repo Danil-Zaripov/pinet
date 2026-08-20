@@ -147,8 +147,6 @@ _arena: *std.heap.ArenaAllocator,
 arena: std.mem.Allocator,
 gpa: std.mem.Allocator,
 
-equation_fetcher: EquationFetcher,
-
 rule_table: RuleTable,
 wildcard_table: std.AutoHashMap(Agent.Id, []ConditionedRule),
 
@@ -167,16 +165,12 @@ pub fn init(gpa: std.mem.Allocator, page: std.mem.Allocator, main_file: File) !S
     const allocator = arena.allocator();
     try Builtin.init(allocator);
 
-    const two_deque_equation_fetcher = try gpa.create(EquationFetcher.TwoDequeEquationFetcher);
-    two_deque_equation_fetcher.* = .init(gpa);
-
     return .{
         ._arena = arena,
         .arena = allocator,
         .gpa = gpa,
         .agent_id_map = try IdCountingHashMap.init(allocator),
         .associated_names = std.StringHashMap(?*Name).init(allocator),
-        .equation_fetcher = two_deque_equation_fetcher.equationFetcher(),
         .agent_arities = try ArityMap.init(allocator),
         .rule_table = RuleTable.init(allocator),
         .wildcard_table = std.AutoHashMap(Agent.Id, []ConditionedRule).init(allocator),
@@ -196,10 +190,6 @@ pub fn deinit(self: *Self) void {
     self.gpa.destroy(self._arena);
 
     self.importer.deinit(self.gpa);
-
-    const two_deque_equation_fetcher: *EquationFetcher.TwoDequeEquationFetcher = @ptrCast(@alignCast(self.equation_fetcher.ptr));
-    two_deque_equation_fetcher.deinit();
-    self.gpa.destroy(two_deque_equation_fetcher);
 }
 
 test {

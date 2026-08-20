@@ -13,6 +13,7 @@ const Lexer = AST.Lexer;
 const Runtime = @import("shared_runtime");
 const Types = Runtime.Types;
 const Memory = Runtime.Memory;
+const EquationFetcher = Runtime.EquationFetcher;
 
 const Compilation = @import("compilation");
 const Instruction = Compilation.Instruction;
@@ -40,6 +41,8 @@ agent_heap: Memory.Heap(Agent),
 registers: [number_of_registers]Value,
 condition_registers: [number_of_registers]Condition.Register.CondValue,
 
+equation_fetcher: EquationFetcher,
+
 runtime: *Runtime,
 
 pub fn createEmptyName(c: *Core) !*Name {
@@ -65,13 +68,13 @@ const normalizeEquation = @import("normalize.zig").normalizeEquation;
 
 pub fn pushEquation(c: *Core, eq: EquationUnnormalized) !void {
     if (try normalizeEquation(c, eq)) |normalized| {
-        try c.runtime.equation_fetcher.push(normalized);
+        try c.equation_fetcher.push(normalized);
     }
 }
 
 pub fn pushUrgent(c: *Core, eq: EquationUnnormalized) !void {
     if (try normalizeEquation(c, eq)) |normalized| {
-        try c.runtime.equation_fetcher.pushUrgent(normalized);
+        try c.equation_fetcher.pushUrgent(normalized);
     }
 }
 
@@ -109,10 +112,14 @@ fn heapDeinit(comptime T: type, heap: Memory.Heap(T), gpa: std.mem.Allocator) vo
 }
 
 pub fn init(runtime: *Runtime, heap_size: usize) !Self {
+    const two_deque_equation_fetcher = try runtime.gpa.create(EquationFetcher.TwoDequeEquationFetcher);
+    two_deque_equation_fetcher.* = .init(runtime.gpa);
+
     return .{
         .runtime = runtime,
         .agent_heap = try heapInit(Agent, heap_size, runtime.gpa),
         .name_heap = try heapInit(Name, heap_size, runtime.gpa),
+        .equation_fetcher = two_deque_equation_fetcher.equationFetcher(),
 
         // They are not meant to be used when undefiend by the design of compilation.
         .registers = @splat(undefined),
@@ -123,6 +130,10 @@ pub fn init(runtime: *Runtime, heap_size: usize) !Self {
 pub fn deinit(self: *Self) void {
     heapDeinit(Agent, self.agent_heap, self.runtime.gpa);
     heapDeinit(Name, self.name_heap, self.runtime.gpa);
+
+    const two_deque_equation_fetcher: *EquationFetcher.TwoDequeEquationFetcher = @ptrCast(@alignCast(self.equation_fetcher.ptr));
+    two_deque_equation_fetcher.deinit();
+    self.runtime.gpa.destroy(two_deque_equation_fetcher);
 }
 
 pub fn objToValueNumber(c: *Core, num: AST.Object) !Value {
@@ -250,7 +261,7 @@ pub fn execInstructions(
 }
 
 pub fn runEquations(c: *Core) !void {
-    while (c.runtime.equation_fetcher.fetch()) |eq| {
+    while (c.equation_fetcher.fetch()) |eq| {
         try Interaction.evalEquation(c, eq);
     }
 }
