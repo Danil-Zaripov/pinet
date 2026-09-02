@@ -44,7 +44,7 @@ pub const Name = struct {
     /// without changing the chain
     pub fn unwind(name: *Name) ?*Agent {
         var node = name;
-        while (node.port.tag.isNonEmpty()) {
+        while (node.port.isNonEmpty()) {
             const port = node.port;
             switch (port.tag) {
                 .name => {
@@ -285,10 +285,10 @@ test "value conversion" {
 test "unchain" {
     const gpa = std.testing.allocator;
 
-    var basic_name_heap: memory.BasicHeap(Name) = try .init(gpa, 20);
+    var basic_name_heap: memory.BasicHeap(Name) = try .init(gpa, 3);
     defer basic_name_heap.deinit(gpa);
 
-    var basic_agent_heap: memory.BasicHeap(Agent) = try .init(gpa, 20);
+    var basic_agent_heap: memory.BasicHeap(Agent) = try .init(gpa, 1);
     defer basic_agent_heap.deinit(gpa);
 
     var name_heap = basic_name_heap.heap();
@@ -309,4 +309,34 @@ test "unchain" {
     try std.testing.expectEqual(.free, @as(*Optional, @fieldParentPtr("item", b)).*);
     try std.testing.expectEqual(.free, @as(*Optional, @fieldParentPtr("item", c)).*);
     try std.testing.expectEqual(a.port.getAgent(), agent);
+}
+
+test "traverseFree" {
+    const gpa = std.testing.allocator;
+
+    var basic_name_heap: memory.BasicHeap(Name) = try .init(gpa, 3);
+    defer basic_name_heap.deinit(gpa);
+
+    var basic_agent_heap: memory.BasicHeap(Agent) = try .init(gpa, 1);
+    defer basic_agent_heap.deinit(gpa);
+
+    var name_heap = basic_name_heap.heap();
+    var agent_heap = basic_agent_heap.heap();
+    // a -> b -> c -> Agent() ===> a -> Agent()
+
+    const a = try name_heap.allocOne();
+    const b = try name_heap.allocOne();
+    const c = try name_heap.allocOne();
+    const agent = try agent_heap.allocOne();
+    agent.* = .{ .id = 0 };
+    a.port = Value.name(b);
+    b.port = Value.name(c);
+    c.port = Value.agent(agent);
+    const last = a.traverseFree(name_heap);
+    // a and b get cleaned, c -> agent
+    const Optional = memory.BasicHeap(Name).Optional;
+    try std.testing.expectEqual(.free, @as(*Optional, @fieldParentPtr("item", a)).*);
+    try std.testing.expectEqual(.free, @as(*Optional, @fieldParentPtr("item", b)).*);
+    try std.testing.expectEqual(c, last);
+    try std.testing.expectEqual(c.port.getAgent(), agent);
 }

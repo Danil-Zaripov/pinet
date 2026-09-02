@@ -104,15 +104,19 @@ pub fn BasicHeap(comptime T: type) type {
             real_elem.* = .free;
         }
 
+        pub fn getUsedCount(self: *const Self) usize {
+            var cnt: usize = 0;
+            for (self.items) |maybe_elem| {
+                if (maybe_elem == .item)
+                    cnt += 1;
+            }
+            return cnt;
+        }
+
         fn printUsage(ctx: *anyopaque) void {
             const self: *Self = @ptrCast(@alignCast(ctx));
 
-            var used: usize = 0;
-            for (self.items) |maybe_elem| {
-                if (maybe_elem == .item) {
-                    used += 1;
-                }
-            }
+            const used = getUsedCount(self);
 
             const free = self.items.len - used;
             std.debug.print("Heap({s}): {} used, {} free, sizeOf(Optional) = {}, sizeOf(T) = {}\n", .{

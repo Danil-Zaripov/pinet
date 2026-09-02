@@ -350,9 +350,11 @@ pub fn number(c: *Core, self: *Agent, other: *Agent) BuiltinAgentError!void {
             switch (val.tag) {
                 .name => {
                     const name = val.getName();
-                    const traversed = name.traverseFree(_c.name_heap);
-                    if (traversed.port.isNonEmpty()) {
-                        return traversed.port.getAgent().ports[0].getSpecial();
+                    if (name.unwind()) |agent| {
+                        name.unchain(_c.name_heap);
+                        _c.name_heap.freeOne(name);
+                        defer _c.agent_heap.freeOne(agent);
+                        return agent.ports[0].getSpecial();
                     } else {
                         return null;
                     }
