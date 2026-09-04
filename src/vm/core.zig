@@ -77,6 +77,10 @@ pub fn pushUrgent(c: *Core, eq: EquationUnnormalized) !void {
     }
 }
 
+pub fn pushLazy(c: *Core, eq: Equation) !void {
+    try c.equation_fetcher.pushLazy(eq);
+}
+
 fn HeapType(comptime T: type) type {
     switch (Config.heap) {
         .basic => return Memory.BasicHeap(T),
@@ -111,14 +115,14 @@ fn heapDeinit(comptime T: type, heap: Memory.Heap(T), gpa: std.mem.Allocator) vo
 }
 
 pub fn init(runtime: *Runtime, heap_size: usize) !Self {
-    const two_deque_equation_fetcher = try runtime.gpa.create(EquationFetcher.TwoDequeEquationFetcher);
-    two_deque_equation_fetcher.* = .init(runtime.gpa);
+    const three_deque_equation_fetcher = try runtime.gpa.create(EquationFetcher.ThreeDequeEquationFetcher);
+    three_deque_equation_fetcher.* = .init(runtime.gpa);
 
     return .{
         .runtime = runtime,
         .agent_heap = try heapInit(Agent, heap_size, runtime.gpa),
         .name_heap = try heapInit(Name, heap_size, runtime.gpa),
-        .equation_fetcher = two_deque_equation_fetcher.equationFetcher(),
+        .equation_fetcher = three_deque_equation_fetcher.equationFetcher(),
 
         // They are not meant to be used when undefiend by the design of compilation.
         .registers = @splat(undefined),
@@ -130,9 +134,9 @@ pub fn deinit(self: *Self) void {
     heapDeinit(Agent, self.agent_heap, self.runtime.gpa);
     heapDeinit(Name, self.name_heap, self.runtime.gpa);
 
-    const two_deque_equation_fetcher: *EquationFetcher.TwoDequeEquationFetcher = @ptrCast(@alignCast(self.equation_fetcher.ptr));
-    two_deque_equation_fetcher.deinit();
-    self.runtime.gpa.destroy(two_deque_equation_fetcher);
+    const three_deque_equation_fetcher: *EquationFetcher.ThreeDequeEquationFetcher = @ptrCast(@alignCast(self.equation_fetcher.ptr));
+    three_deque_equation_fetcher.deinit();
+    self.runtime.gpa.destroy(three_deque_equation_fetcher);
 }
 
 pub fn objToValueNumber(c: *Core, num: AST.Object) !Value {
