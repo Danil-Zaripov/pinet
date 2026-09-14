@@ -24,7 +24,8 @@ pub const CoreCommon = @import("core_common.zig");
 pub const Builtin = @import("builtin.zig");
 pub const Interaction = @import("interactions.zig");
 pub const Importer = @import("importer.zig");
-pub const normalizeEquation = @import("normalize.zig").normalizeEquation;
+const Normalize = @import("normalize.zig");
+pub const normalizeEquation = Normalize.normalizeEquation;
 
 const VM = @This();
 const Self = VM;
@@ -84,14 +85,16 @@ pub const GlobalCtx = struct {
     }
 
     fn equationFetcherInit(gpa: std.mem.Allocator) !EquationFetcher {
-        const two_deque_equation_fetcher = try gpa.create(EquationFetcher.TwoDequeEquationFetcher);
+        const FetcherType = EquationFetcher.TwoDequeEquationFetcher;
+        const two_deque_equation_fetcher = try gpa.create(FetcherType);
         two_deque_equation_fetcher.* = .init(gpa);
 
         return two_deque_equation_fetcher.equationFetcher();
     }
 
     fn equationFetcherDeinit(equation_fetcher: EquationFetcher, gpa: std.mem.Allocator) void {
-        const two_deque_equation_fetcher: *EquationFetcher.TwoDequeEquationFetcher = @ptrCast(@alignCast(equation_fetcher.ptr));
+        const FetcherType = EquationFetcher.TwoDequeEquationFetcher;
+        const two_deque_equation_fetcher: *FetcherType = @ptrCast(@alignCast(equation_fetcher.ptr));
         two_deque_equation_fetcher.deinit();
         gpa.destroy(two_deque_equation_fetcher);
     }
@@ -151,6 +154,14 @@ pub const GlobalCtx = struct {
         _ = self;
         _ = local_ctx;
         _ = gpa;
+    }
+
+    pub fn pushEquation(self: GlobalCtx, eq: EquationUnnormalized) !void {
+        try Normalize.pushEquation(self.name_heap, self.equation_fetcher, eq);
+    }
+
+    pub fn pushUrgentEquation(self: GlobalCtx, eq: EquationUnnormalized) !void {
+        try Normalize.pushUrgentEquation(self.name_heap, self.equation_fetcher, eq);
     }
 };
 
@@ -271,107 +282,119 @@ fn objToValue(
     return objToValueName(runtime, name_heap, obj);
 }
 
+inline fn printStmt(self: *Self, name_to_print: AST.Name) !void {
+    if (self.runtime.associated_names.get(name_to_print.val)) |maybe_name| {
+        if (maybe_name) |name| {
+            if (name.port) |port| {
+                try Printing.tryPrint(self.runtime, self.runtime.gpa, port);
+            } else {
+                std.debug.print("<MOVED>\n", .{});
+            }
+        } else {
+            std.debug.print("<EMPTY>\n", .{});
+        }
+    } else {
+        std.debug.print("<UNDEFINED>\n", .{});
+    }
+}
+
+inline fn freeStmt(self: *Self, names: []const AST.Name) !void {
+    for (names) |wrapped_name| {
+        const name = wrapped_name.val;
+        if (self.runtime.associated_names.get(name)) |maybe_wire| {
+            defer _ = self.runtime.associated_names.remove(name);
+            if (maybe_wire) |wire| {
+                const traversed = wire.traverseFree(self.global_ctx.name_heap);
+                defer self.global_ctx.name_heap.freeOne(traversed);
+                if (traversed.port) |port| {
+                    // of course, there shouldn't be anything other than an agent
+                    try Builtin.Eraser.erase(&self.cores[0], port.agent);
+                }
+            }
+        } else {
+            std.debug.print("Trying to free non-existent name {s}\n", .{name});
+        }
+    }
+}
+
+inline fn useStmt(self: *Self, import_path: []const u8) !void {
+    const final_import_path = if (std.fs.path.isAbsolute(import_path)) try self.runtime.gpa.dupe(u8, import_path) else blk: {
+        const dirname = std.fs.path.dirname(self.runtime.main_file.path).?;
+        break :blk try std.fs.path.resolve(self.runtime.gpa, &.{ dirname, import_path });
+    };
+    defer self.runtime.gpa.free(final_import_path);
+
+    try self.runtime.importer.import(final_import_path, self.runtime);
+}
+
+inline fn ruleStmt(self: *Self, rule: AST.Rule) !void {
+    var diag: Diagnostic = .{};
+    const compiled_rule = Instruction.compileRule(self.runtime, rule, &diag) catch |err| {
+        if (Diagnostic.isHandledError(err)) {
+            const message =
+                try diag.getPrettyMessage(
+                    self.runtime.main_file.contents,
+                    self.runtime.main_file.tokens,
+                    self.runtime.gpa,
+                );
+            defer self.runtime.gpa.free(message);
+            std.debug.print("{s}", .{message});
+            return error.CompilationError;
+        } else {
+            return err;
+        }
+    };
+    if (BuildConfig.debug_printing.print_compiled_instructions) {
+        try Instruction.debugPrintInstruction(self.runtime, compiled_rule[1]);
+        const guard_size = 40;
+        const guard: [guard_size]u8 = comptime @splat('=');
+        std.debug.print("{s}\n", .{&guard});
+    }
+    if (compiled_rule[0] == .agents) {
+        try self.runtime.rule_table.map.put(compiled_rule[0].agents, compiled_rule[1]);
+    } else {
+        try self.runtime.wildcard_table.put(compiled_rule[0].wildcard, compiled_rule[1]);
+    }
+}
+
+inline fn prepareActivePair(self: *Self, ap: AST.ActivePair) !void {
+    const lhs = try objToValue(self.runtime, self.global_ctx.agent_heap, self.global_ctx.name_heap, ap.lhs.val);
+    const rhs = try objToValue(self.runtime, self.global_ctx.agent_heap, self.global_ctx.name_heap, ap.rhs.val);
+    const eq = EquationUnnormalized{ .lhs = lhs, .rhs = rhs };
+
+    try self.global_ctx.pushEquation(eq);
+}
+
+// TODO:(kogora): multithread version
+inline fn executeActivePair(self: *Self) !void {
+    if (BuildConfig.debug_printing.benchmark) {
+        const start = std.Io.Clock.awake.now(self.runtime.io);
+        try self.cores[0].runEquations();
+        const end = std.Io.Clock.awake.now(self.runtime.io);
+
+        const duration = start.durationTo(end);
+        std.debug.print("Time passed: {}s\n", .{@as(f64, @floatFromInt(duration.toMilliseconds())) / 1000.0});
+    } else {
+        try self.cores[0].runEquations();
+    }
+
+    if (BuildConfig.debug_printing.print_memory_usage) {
+        self.global_ctx.agent_heap.printUsage();
+        self.global_ctx.name_heap.printUsage();
+    }
+}
+
 pub fn runProgram(self: *Self, program: AST.Program) !void {
     for (program.statements) |statement| {
         switch (statement.val) {
-            .print_stmt => |name_to_print| {
-                if (self.runtime.associated_names.get(name_to_print.val)) |maybe_name| {
-                    if (maybe_name) |name| {
-                        if (name.port) |port| {
-                            try Printing.tryPrint(self.runtime, self.runtime.gpa, port);
-                        } else {
-                            std.debug.print("<MOVED>\n", .{});
-                        }
-                    } else {
-                        std.debug.print("<EMPTY>\n", .{});
-                    }
-                } else {
-                    std.debug.print("<UNDEFINED>\n", .{});
-                }
-            },
-            .free_stmt => |names| {
-                for (names) |wrapped_name| {
-                    const name = wrapped_name.val;
-                    if (self.runtime.associated_names.get(name)) |maybe_wire| {
-                        defer _ = self.runtime.associated_names.remove(name);
-                        if (maybe_wire) |wire| {
-                            const traversed = wire.traverseFree(self.global_ctx.name_heap);
-                            defer self.global_ctx.name_heap.freeOne(traversed);
-                            if (traversed.port) |port| {
-                                // of course, there shouldn't be anything other than an agent
-                                try Builtin.Eraser.erase(&self.cores[0], port.agent);
-                            }
-                        }
-                    } else {
-                        std.debug.print("Trying to free non-existent name {s}\n", .{name});
-                    }
-                }
-            },
-            .use_stmt => |import_path| {
-                const final_import_path = if (std.fs.path.isAbsolute(import_path)) try self.runtime.gpa.dupe(u8, import_path) else blk: {
-                    const dirname = std.fs.path.dirname(self.runtime.main_file.path).?;
-                    break :blk try std.fs.path.resolve(self.runtime.gpa, &.{ dirname, import_path });
-                };
-                defer self.runtime.gpa.free(final_import_path);
-
-                try self.runtime.importer.import(final_import_path, self.runtime);
-            },
+            .print_stmt => |name_to_print| try self.printStmt(name_to_print),
+            .free_stmt => |names| try self.freeStmt(names),
+            .use_stmt => |import_path| try self.useStmt(import_path),
             .active_pair => |ap| {
-                // prepare: build the values, mutating runtime as needed.
-                const lhs = try objToValue(self.runtime, self.global_ctx.agent_heap, self.global_ctx.name_heap, ap.lhs.val);
-                const rhs = try objToValue(self.runtime, self.global_ctx.agent_heap, self.global_ctx.name_heap, ap.rhs.val);
-                const eq = EquationUnnormalized{ .lhs = lhs, .rhs = rhs };
-                try self.cores[0].pushEquation(eq);
-
-                // execute: drain it immediately, same as today - a later
-                // statement (e.g. a print) may depend on this being fully
-                // reduced by the time it runs.
-                // TODO:(kogora): multithread version
-                if (BuildConfig.debug_printing.benchmark) {
-                    const start = std.Io.Clock.awake.now(self.runtime.io);
-                    try self.cores[0].runEquations();
-                    const end = std.Io.Clock.awake.now(self.runtime.io);
-
-                    const duration = start.durationTo(end);
-                    std.debug.print("Time passed: {}s\n", .{@as(f64, @floatFromInt(duration.toMilliseconds())) / 1000.0});
-                } else {
-                    try self.cores[0].runEquations();
-                }
-
-                if (BuildConfig.debug_printing.print_memory_usage) {
-                    self.global_ctx.agent_heap.printUsage();
-                    self.global_ctx.name_heap.printUsage();
-                }
+                try self.prepareActivePair(ap);
+                try self.executeActivePair();
             },
-            .rule => |rule| {
-                var diag: Diagnostic = .{};
-                const compiled_rule = Instruction.compileRule(self.runtime, rule, &diag) catch |err| {
-                    if (Diagnostic.isHandledError(err)) {
-                        const message =
-                            try diag.getPrettyMessage(
-                                self.runtime.main_file.contents,
-                                self.runtime.main_file.tokens,
-                                self.runtime.gpa,
-                            );
-                        defer self.runtime.gpa.free(message);
-                        std.debug.print("{s}", .{message});
-                        return error.CompilationError;
-                    } else {
-                        return err;
-                    }
-                };
-                if (BuildConfig.debug_printing.print_compiled_instructions) {
-                    try Instruction.debugPrintInstruction(self.runtime, compiled_rule[1]);
-                    const guard_size = 40;
-                    const guard: [guard_size]u8 = comptime @splat('=');
-                    std.debug.print("{s}\n", .{&guard});
-                }
-                if (compiled_rule[0] == .agents) {
-                    try self.runtime.rule_table.map.put(compiled_rule[0].agents, compiled_rule[1]);
-                } else {
-                    try self.runtime.wildcard_table.put(compiled_rule[0].wildcard, compiled_rule[1]);
-                }
-            },
+            .rule => |rule| try self.ruleStmt(rule),
             else => {
                 unreachable;
             },

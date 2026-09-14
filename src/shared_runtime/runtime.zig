@@ -92,6 +92,10 @@ pub const ArityMap = struct {
         }
     }
 
+    pub fn arityOf(self: *const ArityMap, id: Agent.Id) Agent.Arity {
+        return self.map.get(id).?;
+    }
+
     pub fn init(allocator: std.mem.Allocator) !ArityMap {
         var map = std.AutoHashMap(Agent.Id, Agent.Arity).init(allocator);
 

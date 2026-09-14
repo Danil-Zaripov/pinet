@@ -18,10 +18,12 @@ const Instruction = Compilation.Instruction;
 const Condition = Compilation.Condition;
 
 const CoreCommon = @import("core_common.zig");
+const Normalize = @import("normalize.zig");
 
 const Agent = Types.Agent;
 const Value = Types.Value;
 const Name = Types.Name;
+const Equation = Types.Equation;
 const EquationUnnormalized = Types.EquationUnnormalized;
 
 const Core = @This();
@@ -35,10 +37,38 @@ pub const LocalCtx = struct {
     name_heap: Memory.Heap(Name),
     agent_heap: Memory.Heap(Agent),
     equation_fetcher: EquationFetcher,
+
+    pub inline fn allocOneAgent(self: LocalCtx) !*Agent {
+        return self.agent_heap.allocOne();
+    }
+
+    pub inline fn freeOneAgent(self: LocalCtx, elem: *Agent) void {
+        self.agent_heap.freeOne(elem);
+    }
+
+    pub inline fn allocOneName(self: LocalCtx) !*Name {
+        return self.name_heap.allocOne();
+    }
+
+    pub inline fn freeOneName(self: LocalCtx, elem: *Name) void {
+        self.name_heap.freeOne(elem);
+    }
+
+    pub inline fn fetchEquation(self: LocalCtx) ?Equation {
+        return self.equation_fetcher.fetch();
+    }
+
+    pub inline fn pushEquation(self: *LocalCtx, eq: EquationUnnormalized) !void {
+        try Normalize.pushEquation(self.name_heap, self.equation_fetcher, eq);
+    }
+
+    pub inline fn pushUrgent(self: *LocalCtx, eq: EquationUnnormalized) !void {
+        try Normalize.pushUrgentEquation(self.name_heap, self.equation_fetcher, eq);
+    }
 };
 
-// the heaps should be in the runtime!
 id: u32,
+
 // Execution only ever reads Runtime (rule/arity/id lookups) - everything
 // that mutates it (rule registration, imports, associated_names) lives in
 // VM's statement handling now, so this can be const.
@@ -50,13 +80,13 @@ registers: [number_of_registers]Value,
 condition_registers: [number_of_registers]Condition.Register.CondValue,
 
 pub fn createEmptyName(c: *Core) !*Name {
-    const name = try c.local_ctx.name_heap.allocOne();
+    const name = try c.local_ctx.allocOneName();
     name.port = null;
     return name;
 }
 
 pub fn createAgent(c: *Core, id: Agent.Id) !*Agent {
-    const ag = try c.local_ctx.agent_heap.allocOne();
+    const ag = try c.local_ctx.allocOneAgent();
     ag.id = id;
     ag.ports = @splat(null);
     return ag;
@@ -66,20 +96,6 @@ pub fn createNumberAgent(c: *Core, num: Types.Special) !*Agent {
     const ag = try createAgent(c, Builtin.BuiltinNameMap.get(Builtin.number_builtin_ident).?);
     ag.ports[0] = Value{ .special = num };
     return ag;
-}
-
-const normalizeEquation = @import("normalize.zig").normalizeEquation;
-
-pub fn pushEquation(c: *Core, eq: EquationUnnormalized) !void {
-    if (try normalizeEquation(c, eq)) |normalized| {
-        try c.local_ctx.equation_fetcher.push(normalized);
-    }
-}
-
-pub fn pushUrgent(c: *Core, eq: EquationUnnormalized) !void {
-    if (try normalizeEquation(c, eq)) |normalized| {
-        try c.local_ctx.equation_fetcher.pushUrgent(normalized);
-    }
 }
 
 /// Core owns none of these by allocation - the runtime, the heaps and the
@@ -114,7 +130,7 @@ pub fn execInstructions(
     for (instrs) |instruction| {
         switch (instruction.tag) {
             .mk_agent => |id| {
-                const ag = try c.local_ctx.agent_heap.allocOne();
+                const ag = try c.local_ctx.allocOneAgent();
                 ag.* = .{ .id = id, .ports = @splat(null) };
                 c.registers[instruction.operand1] = .{ .agent = ag };
             },
@@ -129,22 +145,22 @@ pub fn execInstructions(
                     .lhs = c.registers[instruction.operand1],
                     .rhs = c.registers[instruction.operand2],
                 };
-                try c.pushEquation(eq);
+                try c.local_ctx.pushEquation(eq);
             },
             .mk_name => {
-                const name = try c.local_ctx.name_heap.allocOne();
+                const name = try c.local_ctx.allocOneName();
                 name.* = .{ .port = null };
                 c.registers[instruction.operand1] = .{ .name = name };
             },
             .load_arguments => {
-                const larity = c.runtime.agent_arities.map.get(lagent.id).?;
+                const larity = c.runtime.agent_arities.arityOf(lagent.id);
                 var idx: u16 = 0;
                 for (0..larity) |port_idx| {
                     c.registers[idx] = lagent.ports[port_idx].?;
                     idx += 1;
                 }
                 if (!wildcarded) {
-                    const rarity = c.runtime.agent_arities.map.get(ragent.id).?;
+                    const rarity = c.runtime.agent_arities.arityOf(ragent.id);
                     for (0..rarity) |port_idx| {
                         c.registers[idx] = ragent.ports[port_idx].?;
                         idx += 1;
@@ -159,7 +175,7 @@ pub fn execInstructions(
 }
 
 pub fn runEquations(c: *Core) !void {
-    while (c.local_ctx.equation_fetcher.fetch()) |eq| {
+    while (c.local_ctx.fetchEquation()) |eq| {
         try Interaction.evalEquation(c, eq);
     }
 }
