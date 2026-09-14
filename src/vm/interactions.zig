@@ -42,7 +42,7 @@ fn evalCondition(c: *Core, lagent: *Agent, ragent: *Agent, instructions: []Condi
                 const agent = agent: {
                     switch (value) {
                         .name => |name| {
-                            const traversed = name.traverseFree(c.name_heap);
+                            const traversed = name.traverseFree(c.local_ctx.name_heap);
                             if (traversed.port) |traversed_port| {
                                 break :agent traversed_port.agent;
                             } else {
@@ -165,8 +165,8 @@ pub fn evalEquation(c: *Core, eq: Equation) !void {
             // We don't free the ragent in case it's wildcarded
             // because it functions like a name and will interact
             // later
-            defer c.agent_heap.freeOne(lagent);
-            defer if (!wildcarded) c.agent_heap.freeOne(ragent);
+            defer c.local_ctx.agent_heap.freeOne(lagent);
+            defer if (!wildcarded) c.local_ctx.agent_heap.freeOne(ragent);
 
             const conditioned_rules = search_result.rules;
             for (conditioned_rules) |conditioned| {

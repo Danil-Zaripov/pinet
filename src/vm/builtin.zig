@@ -116,7 +116,7 @@ pub const Eraser = struct {
     }
 
     pub fn erase(c: *Core, agent: *Agent) !void {
-        defer c.agent_heap.freeOne(agent);
+        defer c.local_ctx.agent_heap.freeOne(agent);
         // This unwrap may fail in case of (w, F(w)) net on "free w;"
         const ag_arity = c.runtime.agent_arities.map.get(agent.id).?;
         for (0..ag_arity) |idx| {
@@ -124,7 +124,7 @@ pub const Eraser = struct {
             port_switch: switch (port) {
                 .name => |name| {
                     if (name.port) |name_port| {
-                        defer c.name_heap.freeOne(name);
+                        defer c.local_ctx.name_heap.freeOne(name);
                         continue :port_switch name_port;
                     } else {
                         // If the name is free yet, create eraser on its port
@@ -141,7 +141,7 @@ pub const Eraser = struct {
 };
 
 pub fn eraser(c: *Core, self: *Agent, other: *Agent) BuiltinAgentError!void {
-    defer c.agent_heap.freeOne(self);
+    defer c.local_ctx.agent_heap.freeOne(self);
 
     try Eraser.erase(c, other);
 }
@@ -208,10 +208,10 @@ const copying_duplicator = struct {
             const port = agent.ports[idx].?;
             port_switch: switch (port) {
                 .name => |connected_name| {
-                    const traversed = connected_name.traverseFree(ctx.c.name_heap);
+                    const traversed = connected_name.traverseFree(ctx.c.local_ctx.name_heap);
                     // This means that after copyNames, there are no names that do not have null ports.
                     if (traversed.port) |traversed_port| {
-                        ctx.c.name_heap.freeOne(traversed);
+                        ctx.c.local_ctx.name_heap.freeOne(traversed);
                         agent.ports[idx] = traversed_port;
                         continue :port_switch traversed_port;
                     } else {
@@ -243,7 +243,7 @@ const copying_duplicator = struct {
 };
 
 pub fn dupCopy(c: *Core, self: *Agent, ag: *Agent) BuiltinAgentError!void {
-    defer c.agent_heap.freeOne(self);
+    defer c.local_ctx.agent_heap.freeOne(self);
     // This allocates :(
 
     var arena = std.heap.ArenaAllocator.init(c.runtime.gpa);
@@ -303,8 +303,8 @@ pub fn tuple(c: *Core, self: *Agent, other: *Agent) BuiltinAgentError!void {
     if (self.id != other.id) {
         return BuiltinAgentError.NoRuleSpecified;
     }
-    defer c.agent_heap.freeOne(self);
-    defer c.agent_heap.freeOne(other);
+    defer c.local_ctx.agent_heap.freeOne(self);
+    defer c.local_ctx.agent_heap.freeOne(other);
     const arity = c.runtime.agent_arities.map.get(self.id).?;
 
     for (0..arity) |port_idx| {
@@ -331,9 +331,9 @@ pub fn number(c: *Core, self: *Agent, other: *Agent) BuiltinAgentError!void {
             switch (val) {
                 .name => |name| {
                     if (name.unwind()) |agent| {
-                        name.unchain(_c.name_heap);
-                        _c.name_heap.freeOne(name);
-                        defer _c.agent_heap.freeOne(agent);
+                        name.unchain(_c.local_ctx.name_heap);
+                        _c.local_ctx.name_heap.freeOne(name);
+                        defer _c.local_ctx.agent_heap.freeOne(agent);
                         return agent.ports[0].?.special;
                     } else {
                         return null;
@@ -358,8 +358,8 @@ pub fn number(c: *Core, self: *Agent, other: *Agent) BuiltinAgentError!void {
         try c.pushEquation(eq);
         return;
     };
-    defer c.agent_heap.freeOne(self);
-    defer c.agent_heap.freeOne(other);
+    defer c.local_ctx.agent_heap.freeOne(self);
+    defer c.local_ctx.agent_heap.freeOne(other);
 
     const ret = switch (other.id) {
         adder_id => Special.add(sv, self_special),
@@ -389,8 +389,8 @@ pub fn make_random_list(c: *Core, self: *Agent, other: *Agent) BuiltinAgentError
         .float => return BuiltinAgentError.BadSecondaryArgument,
     };
 
-    defer c.agent_heap.freeOne(self);
-    defer c.agent_heap.freeOne(other);
+    defer c.local_ctx.agent_heap.freeOne(self);
+    defer c.local_ctx.agent_heap.freeOne(other);
 
     var prng: std.Random.DefaultPrng = .init(blk: {
         var buffer: [8]u8 = undefined;

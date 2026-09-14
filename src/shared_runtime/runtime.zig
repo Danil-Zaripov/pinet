@@ -122,7 +122,7 @@ pub const RuleSearchResult = struct {
 pub const RuleTable = struct {
     map: std.AutoHashMap(AgentsKey, []ConditionedRule),
 
-    pub fn get(self: *RuleTable, ap: AgentsKey) !RuleSearchResult {
+    pub fn get(self: *const RuleTable, ap: AgentsKey) !RuleSearchResult {
         if (self.map.get(ap)) |rules| {
             return .{ .rules = rules, .tag = .normal };
         } else if (self.map.get(.{ .lhs = ap.rhs, .rhs = ap.lhs })) |rules| {

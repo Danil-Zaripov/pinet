@@ -13,12 +13,12 @@ const Config = @import("config");
 fn name_name(c: *Core, lname: *Name, rname: *Name) !?Equation {
     //Debug.log(.print_interactions, "name - name interaction\n", .{});
 
-    const ltraversed = lname.traverseFree(c.name_heap);
-    const rtraversed = rname.traverseFree(c.name_heap);
+    const ltraversed = lname.traverseFree(c.local_ctx.name_heap);
+    const rtraversed = rname.traverseFree(c.local_ctx.name_heap);
     if (ltraversed.port) |lport| {
-        defer c.name_heap.freeOne(ltraversed);
+        defer c.local_ctx.name_heap.freeOne(ltraversed);
         if (rtraversed.port) |rport| {
-            defer c.name_heap.freeOne(rtraversed);
+            defer c.local_ctx.name_heap.freeOne(rtraversed);
             return Equation{ .lhs = lport.agent, .rhs = rport.agent };
         } else {
             rtraversed.port = lport;
@@ -35,9 +35,9 @@ fn name_agent(c: *Core, name: *Name, agent: *Agent) !?Equation {
         //std.debug.print("{s} - name interaction\n", .{c.runtime.agent_id_map.findKey(agent.id).?});
     }
 
-    const traversed = name.traverseFree(c.name_heap);
+    const traversed = name.traverseFree(c.local_ctx.name_heap);
     if (traversed.port) |port| {
-        defer c.name_heap.freeOne(traversed);
+        defer c.local_ctx.name_heap.freeOne(traversed);
         return Equation{ .lhs = port.agent, .rhs = agent };
     } else {
         traversed.port = .{ .agent = agent };

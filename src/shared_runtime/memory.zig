@@ -32,6 +32,66 @@ pub fn Heap(comptime T: type) type {
     };
 }
 
+pub fn LockedHeap(comptime T: type) type {
+    return struct {
+        const Self = @This();
+
+        inner: Heap(T),
+        mutex: std.atomic.Mutex = .unlocked,
+
+        pub fn init(inner: Heap(T)) Self {
+            return .{ .inner = inner };
+        }
+
+        const vtable: Heap(T).VTable = .{
+            .allocOne = allocOne,
+            .freeOne = freeOne,
+            .printUsage = printUsage,
+        };
+
+        pub fn heap(self: *Self) Heap(T) {
+            return .{ .ptr = self, .vtable = &vtable };
+        }
+
+        pub fn getUser(self: *Self) Heap(T) {
+            return self.heap();
+        }
+
+        // std.atomic.Mutex is lock-free (tryLock/unlock only) - spin until
+        // we get it.
+        fn lock(self: *Self) void {
+            while (!self.mutex.tryLock()) std.atomic.spinLoopHint();
+        }
+
+        fn allocOne(ctx: *anyopaque) Heap(T).Error!*T {
+            const self: *Self = @ptrCast(@alignCast(ctx));
+
+            self.lock();
+            defer self.mutex.unlock();
+
+            return self.inner.allocOne();
+        }
+
+        fn freeOne(ctx: *anyopaque, elem: *T) void {
+            const self: *Self = @ptrCast(@alignCast(ctx));
+
+            self.lock();
+            defer self.mutex.unlock();
+
+            self.inner.freeOne(elem);
+        }
+
+        fn printUsage(ctx: *anyopaque) void {
+            const self: *Self = @ptrCast(@alignCast(ctx));
+
+            self.lock();
+            defer self.mutex.unlock();
+
+            self.inner.printUsage();
+        }
+    };
+}
+
 pub fn BasicHeap(comptime T: type) type {
     return struct {
         const Self = @This();
@@ -392,4 +452,49 @@ test "ObjPool: interior slots are misaligned for the intrusive free-list pointer
 
     var pool = try ObjPool(Meow).init(gpa, 2);
     defer pool.deinit(gpa);
+}
+
+test "LockedHeap: wraps allocation/free through to the inner heap" {
+    const gpa = std.testing.allocator;
+
+    const Meow = struct {
+        meow: i32,
+    };
+
+    var pool = try ObjPool(Meow).init(gpa, 4);
+    defer pool.deinit(gpa);
+
+    var locked = LockedHeap(Meow).init(pool.heap());
+    const my_heap = locked.heap();
+
+    const item_ptr = try my_heap.allocOne();
+    item_ptr.meow = 42;
+    try std.testing.expectEqual(@as(i32, 42), item_ptr.meow);
+
+    my_heap.freeOne(item_ptr);
+
+    // The slot should be reusable now that it's freed.
+    const item_ptr2 = try my_heap.allocOne();
+    try std.testing.expectEqual(item_ptr, item_ptr2);
+    my_heap.freeOne(item_ptr2);
+}
+
+test "LockedHeap: getUser hands back a working copy of the heap" {
+    const gpa = std.testing.allocator;
+
+    const Meow = struct {
+        meow: i32,
+    };
+
+    var pool = try ObjPool(Meow).init(gpa, 4);
+    defer pool.deinit(gpa);
+
+    var locked = LockedHeap(Meow).init(pool.heap());
+
+    const my_heap = locked.getUser();
+    const item_ptr = try my_heap.allocOne();
+    item_ptr.meow = 42;
+    try std.testing.expectEqual(@as(i32, 42), item_ptr.meow);
+
+    my_heap.freeOne(item_ptr);
 }
