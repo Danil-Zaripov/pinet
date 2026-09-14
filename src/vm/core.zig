@@ -29,6 +29,14 @@ const Self = Core;
 
 const number_of_registers = 256;
 
+/// Per-core state - the heap and fetcher a given Core exclusively works
+/// with, as opposed to CoreCommon which every Core shares.
+pub const LocalCtx = struct {
+    name_heap: Memory.Heap(Name),
+    agent_heap: Memory.Heap(Agent),
+    equation_fetcher: EquationFetcher,
+};
+
 // the heaps should be in the runtime!
 id: u32,
 // Execution only ever reads Runtime (rule/arity/id lookups) - everything
@@ -36,22 +44,19 @@ id: u32,
 // VM's statement handling now, so this can be const.
 runtime: *const Runtime,
 core_common: *CoreCommon,
-
-name_heap: Memory.Heap(Name),
-agent_heap: Memory.Heap(Agent),
-equation_fetcher: EquationFetcher,
+local_ctx: LocalCtx,
 
 registers: [number_of_registers]Value,
 condition_registers: [number_of_registers]Condition.Register.CondValue,
 
 pub fn createEmptyName(c: *Core) !*Name {
-    const name = try c.name_heap.allocOne();
+    const name = try c.local_ctx.name_heap.allocOne();
     name.port = null;
     return name;
 }
 
 pub fn createAgent(c: *Core, id: Agent.Id) !*Agent {
-    const ag = try c.agent_heap.allocOne();
+    const ag = try c.local_ctx.agent_heap.allocOne();
     ag.id = id;
     ag.ports = @splat(null);
     return ag;
@@ -67,35 +72,31 @@ const normalizeEquation = @import("normalize.zig").normalizeEquation;
 
 pub fn pushEquation(c: *Core, eq: EquationUnnormalized) !void {
     if (try normalizeEquation(c, eq)) |normalized| {
-        try c.equation_fetcher.push(normalized);
+        try c.local_ctx.equation_fetcher.push(normalized);
     }
 }
 
 pub fn pushUrgent(c: *Core, eq: EquationUnnormalized) !void {
     if (try normalizeEquation(c, eq)) |normalized| {
-        try c.equation_fetcher.pushUrgent(normalized);
+        try c.local_ctx.equation_fetcher.pushUrgent(normalized);
     }
 }
 
-// Core owns none of these by allocation - the runtime, the heaps and the
-// equation fetcher are all created and destroyed by the VM, which is what
-// lets it hand out per-thread heaps in the multithreaded setup. Core just
-// holds onto what it's given.
+/// Core owns none of these by allocation - the runtime, the heaps and the
+/// equation fetcher are all created and destroyed by the VM, which is what
+/// lets it hand out per-thread heaps in the multithreaded setup. Core just
+/// holds onto what it's given.
 pub fn init(
     core_id: u32,
     runtime: *const Runtime,
     core_common: *CoreCommon,
-    agent_heap: Memory.Heap(Agent),
-    name_heap: Memory.Heap(Name),
-    equation_fetcher: EquationFetcher,
+    local_ctx: LocalCtx,
 ) Self {
     return .{
         .id = core_id,
         .runtime = runtime,
         .core_common = core_common,
-        .agent_heap = agent_heap,
-        .name_heap = name_heap,
-        .equation_fetcher = equation_fetcher,
+        .local_ctx = local_ctx,
 
         // They are not meant to be used when undefiend by the design of compilation.
         .registers = @splat(undefined),
@@ -113,7 +114,7 @@ pub fn execInstructions(
     for (instrs) |instruction| {
         switch (instruction.tag) {
             .mk_agent => |id| {
-                const ag = try c.agent_heap.allocOne();
+                const ag = try c.local_ctx.agent_heap.allocOne();
                 ag.* = .{ .id = id, .ports = @splat(null) };
                 c.registers[instruction.operand1] = .{ .agent = ag };
             },
@@ -131,7 +132,7 @@ pub fn execInstructions(
                 try c.pushEquation(eq);
             },
             .mk_name => {
-                const name = try c.name_heap.allocOne();
+                const name = try c.local_ctx.name_heap.allocOne();
                 name.* = .{ .port = null };
                 c.registers[instruction.operand1] = .{ .name = name };
             },
@@ -158,7 +159,7 @@ pub fn execInstructions(
 }
 
 pub fn runEquations(c: *Core) !void {
-    while (c.equation_fetcher.fetch()) |eq| {
+    while (c.local_ctx.equation_fetcher.fetch()) |eq| {
         try Interaction.evalEquation(c, eq);
     }
 }

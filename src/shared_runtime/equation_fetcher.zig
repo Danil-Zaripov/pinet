@@ -48,6 +48,10 @@ pub const LockedEquationFetcher = struct {
         return .{ .ptr = self, .vtable = &vtable };
     }
 
+    pub fn getUser(self: *Self) EquationFetcher {
+        return self.equationFetcher();
+    }
+
     // std.atomic.Mutex is lock-free (tryLock/unlock only) - spin until we
     // get it.
     fn lock(self: *Self) void {
@@ -159,4 +163,25 @@ test "LockedEquationFetcher: wraps push/pushUrgent/fetch through to the inner fe
     _ = fetcher.fetch() orelse return error.TestExpectedFetch;
     _ = fetcher.fetch() orelse return error.TestExpectedFetch;
     try std.testing.expect(fetcher.fetch() == null);
+}
+
+test "LockedEquationFetcher: getUser hands back a working copy of the fetcher" {
+    const gpa = std.testing.allocator;
+
+    var two_deque = TwoDequeEquationFetcher.init(gpa);
+    defer two_deque.deinit();
+
+    var locked = LockedEquationFetcher.init(two_deque.equationFetcher());
+
+    const fetcher = locked.getUser();
+    try std.testing.expect(fetcher.fetch() == null);
+
+    var lagent = Types.Agent{ .id = 1, .ports = @splat(null) };
+    var ragent = Types.Agent{ .id = 2, .ports = @splat(null) };
+    const eq = Equation{ .lhs = &lagent, .rhs = &ragent };
+
+    try fetcher.push(eq);
+    const fetched = fetcher.fetch() orelse return error.TestExpectedFetch;
+    try std.testing.expectEqual(eq.lhs, fetched.lhs);
+    try std.testing.expectEqual(eq.rhs, fetched.rhs);
 }

@@ -53,6 +53,10 @@ pub fn LockedHeap(comptime T: type) type {
             return .{ .ptr = self, .vtable = &vtable };
         }
 
+        pub fn getUser(self: *Self) Heap(T) {
+            return self.heap();
+        }
+
         // std.atomic.Mutex is lock-free (tryLock/unlock only) - spin until
         // we get it.
         fn lock(self: *Self) void {
@@ -473,4 +477,24 @@ test "LockedHeap: wraps allocation/free through to the inner heap" {
     const item_ptr2 = try my_heap.allocOne();
     try std.testing.expectEqual(item_ptr, item_ptr2);
     my_heap.freeOne(item_ptr2);
+}
+
+test "LockedHeap: getUser hands back a working copy of the heap" {
+    const gpa = std.testing.allocator;
+
+    const Meow = struct {
+        meow: i32,
+    };
+
+    var pool = try ObjPool(Meow).init(gpa, 4);
+    defer pool.deinit(gpa);
+
+    var locked = LockedHeap(Meow).init(pool.heap());
+
+    const my_heap = locked.getUser();
+    const item_ptr = try my_heap.allocOne();
+    item_ptr.meow = 42;
+    try std.testing.expectEqual(@as(i32, 42), item_ptr.meow);
+
+    my_heap.freeOne(item_ptr);
 }

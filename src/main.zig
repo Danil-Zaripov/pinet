@@ -90,8 +90,7 @@ pub fn main(init: std.process.Init) !void {
         .cores_num = DEFAULT_CORES_NUM,
     };
 
-    var vm: VM = undefined;
-    try vm.init(&runtime, vm_cfg);
+    var vm = try VM.init(&runtime, vm_cfg);
     defer vm.deinit();
 
     vm.runProgram(program) catch |err| {

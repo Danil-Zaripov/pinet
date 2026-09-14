@@ -29,18 +29,11 @@ pub const normalizeEquation = @import("normalize.zig").normalizeEquation;
 const VM = @This();
 const Self = VM;
 
-pub const GlobalCtx = struct {
-    agent_heap: Memory.Heap(Agent),
-    name_heap: Memory.Heap(Name),
-    equation_fetcher: EquationFetcher,
-};
+const getUser = "getUser";
 
 cores: []Core,
-core_common: CoreCommon,
+core_common: *CoreCommon,
 global_ctx: GlobalCtx,
-agent_heaps: []Memory.Heap(Agent),
-name_heaps: []Memory.Heap(Name),
-equation_fetchers: []EquationFetcher,
 config: Config,
 runtime: *Runtime,
 
@@ -60,135 +53,119 @@ pub const Config = struct {
     }
 };
 
-fn HeapType(comptime T: type) type {
-    switch (BuildConfig.heap) {
-        .basic => return Memory.BasicHeap(T),
-        .objpool => return Memory.ObjPool(T),
+pub const GlobalCtx = struct {
+    agent_heap: Memory.Heap(Agent),
+    name_heap: Memory.Heap(Name),
+    equation_fetcher: EquationFetcher,
+
+    fn HeapType(comptime T: type) type {
+        switch (BuildConfig.heap) {
+            .basic => return Memory.BasicHeap(T),
+            .objpool => return Memory.ObjPool(T),
+        }
     }
-}
 
-fn heapInit(comptime T: type, heap_size: usize, gpa: std.mem.Allocator) !Memory.Heap(T) {
-    const basic_heap = try gpa.create(HeapType(T));
+    fn heapInit(comptime T: type, heap_size: usize, gpa: std.mem.Allocator) !Memory.Heap(T) {
+        const basic_heap = try gpa.create(HeapType(T));
 
-    basic_heap.* = switch (BuildConfig.heap) {
-        .basic => try Memory.BasicHeap(T).init(gpa, heap_size),
-        .objpool => try Memory.ObjPool(T).init(gpa, heap_size),
-    };
+        basic_heap.* = switch (BuildConfig.heap) {
+            .basic => try Memory.BasicHeap(T).init(gpa, heap_size),
+            .objpool => try Memory.ObjPool(T).init(gpa, heap_size),
+        };
 
-    return basic_heap.heap();
-}
+        return basic_heap.heap();
+    }
 
-fn heapDeinit(comptime T: type, heap: Memory.Heap(T), gpa: std.mem.Allocator) void {
-    const basic_heap: *HeapType(T) = @ptrCast(@alignCast(heap.ptr));
+    fn heapDeinit(comptime T: type, heap: Memory.Heap(T), gpa: std.mem.Allocator) void {
+        const basic_heap: *HeapType(T) = @ptrCast(@alignCast(heap.ptr));
 
-    basic_heap.deinit(gpa);
-    gpa.destroy(basic_heap);
-}
+        basic_heap.deinit(gpa);
+        gpa.destroy(basic_heap);
+    }
 
-// TODO:(kogora) current implementation is correct only for lock-heap usage
-//               (or the single-threaded version)
-fn createAgentHeaps(
-    global_ctx: *GlobalCtx,
-    runtime: *Runtime,
-    config: Config,
-) ![]Memory.Heap(Agent) {
-    global_ctx.agent_heap = try heapInit(Agent, config.heap_size, runtime.gpa);
-    errdefer heapDeinit(Agent, global_ctx.agent_heap, runtime.gpa);
+    fn equationFetcherInit(gpa: std.mem.Allocator) !EquationFetcher {
+        const two_deque_equation_fetcher = try gpa.create(EquationFetcher.TwoDequeEquationFetcher);
+        two_deque_equation_fetcher.* = .init(gpa);
 
-    const heaps = try runtime.gpa.alloc(Memory.Heap(Agent), config.cores_num);
-    for (heaps) |*heap| heap.* = global_ctx.agent_heap;
+        return two_deque_equation_fetcher.equationFetcher();
+    }
 
-    return heaps;
-}
+    fn equationFetcherDeinit(equation_fetcher: EquationFetcher, gpa: std.mem.Allocator) void {
+        const two_deque_equation_fetcher: *EquationFetcher.TwoDequeEquationFetcher = @ptrCast(@alignCast(equation_fetcher.ptr));
+        two_deque_equation_fetcher.deinit();
+        gpa.destroy(two_deque_equation_fetcher);
+    }
 
-fn destroyAgentHeaps(
-    global_ctx: *GlobalCtx,
-    heaps: []Memory.Heap(Agent),
-    gpa: std.mem.Allocator,
-) void {
-    if (heaps.len > 0) heapDeinit(Agent, global_ctx.agent_heap, gpa);
-    gpa.free(heaps);
-}
+    fn getHeapUser(comptime T: type, heap: Memory.Heap(T), gpa: std.mem.Allocator) Memory.Heap(T) {
+        _ = gpa;
+        const Concrete = HeapType(T);
+        if (@hasDecl(Concrete, getUser)) {
+            const concrete: *Concrete = @ptrCast(@alignCast(heap.ptr));
+            return concrete.getUser();
+        }
+        return heap;
+    }
 
-// TODO:(kogora) current implementation is correct only for lock-heap usage
-//               (or the single-threaded version)
-fn createNameHeaps(
-    global_ctx: *GlobalCtx,
-    runtime: *Runtime,
-    config: Config,
-) ![]Memory.Heap(Name) {
-    global_ctx.name_heap = try heapInit(Name, config.heap_size, runtime.gpa);
-    errdefer heapDeinit(Name, global_ctx.name_heap, runtime.gpa);
+    fn getFetcherUser(fetcher: EquationFetcher, gpa: std.mem.Allocator) EquationFetcher {
+        _ = gpa;
+        const Concrete = EquationFetcher.TwoDequeEquationFetcher;
+        if (@hasDecl(Concrete, getUser)) {
+            const concrete: *Concrete = @ptrCast(@alignCast(fetcher.ptr));
+            return concrete.getUser();
+        }
+        return fetcher;
+    }
 
-    const heaps = try runtime.gpa.alloc(Memory.Heap(Name), config.cores_num);
-    for (heaps) |*heap| heap.* = global_ctx.name_heap;
+    pub fn init(runtime: *Runtime, config: Config) !GlobalCtx {
+        const agent_heap = try heapInit(Agent, config.heap_size, runtime.gpa);
+        errdefer heapDeinit(Agent, agent_heap, runtime.gpa);
 
-    return heaps;
-}
+        const name_heap = try heapInit(Name, config.heap_size, runtime.gpa);
+        errdefer heapDeinit(Name, name_heap, runtime.gpa);
 
-fn destroyNameHeaps(
-    global_ctx: *GlobalCtx,
-    heaps: []Memory.Heap(Name),
-    gpa: std.mem.Allocator,
-) void {
-    if (heaps.len > 0) heapDeinit(Name, global_ctx.name_heap, gpa);
-    gpa.free(heaps);
-}
+        const equation_fetcher = try equationFetcherInit(runtime.gpa);
+        errdefer equationFetcherDeinit(equation_fetcher, runtime.gpa);
 
-fn equationFetcherInit(gpa: std.mem.Allocator) !EquationFetcher {
-    const two_deque_equation_fetcher = try gpa.create(EquationFetcher.TwoDequeEquationFetcher);
-    two_deque_equation_fetcher.* = .init(gpa);
+        return .{
+            .agent_heap = agent_heap,
+            .name_heap = name_heap,
+            .equation_fetcher = equation_fetcher,
+        };
+    }
 
-    return two_deque_equation_fetcher.equationFetcher();
-}
+    pub fn deinit(self: *GlobalCtx, gpa: std.mem.Allocator) void {
+        equationFetcherDeinit(self.equation_fetcher, gpa);
+        heapDeinit(Name, self.name_heap, gpa);
+        heapDeinit(Agent, self.agent_heap, gpa);
+    }
 
-fn equationFetcherDeinit(equation_fetcher: EquationFetcher, gpa: std.mem.Allocator) void {
-    const two_deque_equation_fetcher: *EquationFetcher.TwoDequeEquationFetcher = @ptrCast(@alignCast(equation_fetcher.ptr));
-    two_deque_equation_fetcher.deinit();
-    gpa.destroy(two_deque_equation_fetcher);
-}
+    pub fn createLocal(self: GlobalCtx, gpa: std.mem.Allocator) Core.LocalCtx {
+        return .{
+            .agent_heap = getHeapUser(Agent, self.agent_heap, gpa),
+            .name_heap = getHeapUser(Name, self.name_heap, gpa),
+            .equation_fetcher = getFetcherUser(self.equation_fetcher, gpa),
+        };
+    }
 
-// TODO:(kogora) current implementation is correct only for lock-fetcher usage
-//               (or the single-threaded version)
-fn createEquationFetchers(
-    global_ctx: *GlobalCtx,
-    runtime: *Runtime,
-    config: Config,
-) ![]EquationFetcher {
-    global_ctx.equation_fetcher = try equationFetcherInit(runtime.gpa);
-    errdefer equationFetcherDeinit(global_ctx.equation_fetcher, runtime.gpa);
+    pub fn destroyLocal(self: *GlobalCtx, local_ctx: Core.LocalCtx, gpa: std.mem.Allocator) void {
+        _ = self;
+        _ = local_ctx;
+        _ = gpa;
+    }
+};
 
-    const fetchers = try runtime.gpa.alloc(EquationFetcher, config.cores_num);
-    for (fetchers) |*fetcher| fetcher.* = global_ctx.equation_fetcher;
-
-    return fetchers;
-}
-
-fn destroyEquationFetchers(
-    global_ctx: *GlobalCtx,
-    fetchers: []EquationFetcher,
-    gpa: std.mem.Allocator,
-) void {
-    if (fetchers.len > 0) equationFetcherDeinit(global_ctx.equation_fetcher, gpa);
-    gpa.free(fetchers);
-}
-
-pub fn init(self: *Self, runtime: *Runtime, config: Config) !void {
+pub fn init(runtime: *Runtime, config: Config) !Self {
     try config.isValid();
 
     // TODO:(kogora): multithread version
     std.debug.assert(config.cores_num == 1);
 
-    self.core_common = CoreCommon.init();
+    const core_common = try runtime.gpa.create(CoreCommon);
+    core_common.* = CoreCommon.init();
+    errdefer runtime.gpa.destroy(core_common);
 
-    const agent_heaps = try createAgentHeaps(&self.global_ctx, runtime, config);
-    errdefer destroyAgentHeaps(&self.global_ctx, agent_heaps, runtime.gpa);
-
-    const name_heaps = try createNameHeaps(&self.global_ctx, runtime, config);
-    errdefer destroyNameHeaps(&self.global_ctx, name_heaps, runtime.gpa);
-
-    const equation_fetchers = try createEquationFetchers(&self.global_ctx, runtime, config);
-    errdefer destroyEquationFetchers(&self.global_ctx, equation_fetchers, runtime.gpa);
+    var global_ctx = try GlobalCtx.init(runtime, config);
+    errdefer global_ctx.deinit(runtime.gpa);
 
     const cores: []Core = try runtime.gpa.alloc(Core, config.cores_num);
     errdefer runtime.gpa.free(cores);
@@ -197,26 +174,25 @@ pub fn init(self: *Self, runtime: *Runtime, config: Config) !void {
         c.* = Core.init(
             @intCast(core_id),
             runtime,
-            &self.core_common,
-            agent_heaps[core_id],
-            name_heaps[core_id],
-            equation_fetchers[core_id],
+            core_common,
+            global_ctx.createLocal(runtime.gpa),
         );
     }
 
-    self.cores = cores;
-    self.agent_heaps = agent_heaps;
-    self.name_heaps = name_heaps;
-    self.equation_fetchers = equation_fetchers;
-    self.runtime = runtime;
-    self.config = config;
+    return .{
+        .cores = cores,
+        .core_common = core_common,
+        .global_ctx = global_ctx,
+        .runtime = runtime,
+        .config = config,
+    };
 }
 
 pub fn deinit(self: *Self) void {
+    for (self.cores) |*c| self.global_ctx.destroyLocal(c.local_ctx, self.runtime.gpa);
     self.runtime.gpa.free(self.cores);
-    destroyEquationFetchers(&self.global_ctx, self.equation_fetchers, self.runtime.gpa);
-    destroyNameHeaps(&self.global_ctx, self.name_heaps, self.runtime.gpa);
-    destroyAgentHeaps(&self.global_ctx, self.agent_heaps, self.runtime.gpa);
+    self.global_ctx.deinit(self.runtime.gpa);
+    self.runtime.gpa.destroy(self.core_common);
 }
 
 fn objToValueNumber(agent_heap: Memory.Heap(Agent), num: AST.Object) !Value {
