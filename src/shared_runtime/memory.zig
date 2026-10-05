@@ -149,29 +149,29 @@ pub fn ObjPool(comptime T: type) type {
         gpa: std.mem.Allocator,
 
         pub fn init(gpa: std.mem.Allocator, capacity: usize, new_capacity: ?usize) !Self {
-            const first_block = try gpa.alloc(Block, 1);
-            const first_block_casted: *Block = @ptrCast(first_block);
-            first_block_casted.items = try gpa.alloc(Optional, capacity);
-            first_block_casted.next = null;
-            blockInit(first_block_casted.items);
+            const first_block = try gpa.create(Block);
+            first_block.items = try gpa.alloc(Optional, capacity);
+            first_block.next = null;
+            blockInit(first_block.items);
             return .{
                 .capacity = capacity,
-                .free_list = @ptrCast(@alignCast(first_block_casted.items)),
+                .free_list = &first_block.items[0],
                 .free_count = capacity,
                 .new_capacity = new_capacity,
-                .block_list = first_block_casted,
+                .block_list = first_block,
                 .gpa = gpa,
                 .used_count = 0,
             };
         }
 
         pub fn deinit(self: *Self, gpa: std.mem.Allocator) void {
-            var next = self.block_list;
-            while (true) {
-                gpa.free(next.items);
-                const new_next = next.next;
-                gpa.destroy(next);
-                next = new_next orelse break;
+            var maybe_next: ?*Block = self.block_list;
+            while (maybe_next) |next| {
+                defer {
+                    gpa.free(next.items);
+                    gpa.destroy(next);
+                }
+                maybe_next = next.next;
             }
         }
 
@@ -189,14 +189,13 @@ pub fn ObjPool(comptime T: type) type {
             const self: *Self = @ptrCast(@alignCast(ctx));
             if (self.free_list == null) {
                 const capacity = self.new_capacity orelse return error.OutOfMemory;
-                const new_block = try self.gpa.alloc(Block, 1);
-                const new_block_casted: *Block = @ptrCast(new_block);
-                new_block_casted.items = try self.gpa.alloc(Optional, capacity);
-                blockInit(new_block_casted.items);
+                const new_block = try self.gpa.create(Block);
+                new_block.items = try self.gpa.alloc(Optional, capacity);
+                blockInit(new_block.items);
                 self.free_count += capacity;
-                new_block_casted.next = self.block_list;
-                self.block_list = new_block_casted;
-                self.free_list = @ptrCast(new_block_casted.items);
+                new_block.next = self.block_list;
+                self.block_list = new_block;
+                self.free_list = &new_block.items[0];
             }
 
             const current_ptr = self.free_list orelse return error.OutOfMemory;
