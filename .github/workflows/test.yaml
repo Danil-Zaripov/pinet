@@ -1,40 +1,40 @@
 name: Tests
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+    push:
+        branches: [main]
+    pull_request:
+        branches: [main]
 
 jobs:
-  check-formatting:
-    runs-on: ubuntu-latest
+    check-formatting:
+        runs-on: ubuntu-latest
 
-    steps:
-      - uses: actions/checkout@v6
+        steps:
+            - uses: actions/checkout@v6
 
-      - name: Setup Zig
-        uses: mlugg/setup-zig@v2
-        with:
-          version: latest
+            - name: Setup Zig
+              uses: mlugg/setup-zig@v2
+              with:
+                  version: 0.16.0
 
-      - name: Check formatting
-        run: zig fmt --check src && zig fmt --check build.zig
+            - name: Check formatting
+              run: zig fmt --check src && zig fmt --check build.zig
 
-  test:
-    runs-on: ubuntu-latest
-    needs: check-formatting
+    test:
+        runs-on: ubuntu-latest
+        needs: check-formatting
 
-    steps:
-      - uses: actions/checkout@v6
+        steps:
+            - uses: actions/checkout@v6
 
-      - name: Setup Zig
-        uses: mlugg/setup-zig@v2
-        with:
-          version: latest
+            - name: Setup Zig
+              uses: mlugg/setup-zig@v2
+              with:
+                  version: 0.16.0
 
-      - name: Build
-        run: zig build
+            - name: Build
+              run: zig build
 
-      - name: Build and test
-        run: zig build test
+            - name: Build and test
+              run: zig build test
