@@ -100,6 +100,12 @@ pub const LocalCtx = struct {
     pub inline fn pushUrgent(self: *LocalCtx, eq: EquationUnnormalized) !void {
         try Normalize.pushUrgentEquation(self.name_heap, self.equation_fetcher, eq);
     }
+
+    /// This function will always be called in the context of two agents interacting.
+    /// Hence, normalization is unnecessary.
+    pub inline fn pushLazy(self: *LocalCtx, eq: Equation) !void {
+        try self.equation_fetcher.pushLazy(eq);
+    }
 };
 
 pub fn createEmptyName(c: *Core) !*Name {
@@ -111,7 +117,6 @@ pub fn createEmptyName(c: *Core) !*Name {
 pub fn createAgent(c: *Core, id: Agent.Id) !*Agent {
     const ag = try c.local_ctx.allocOneAgent();
     ag.id = id;
-    ag.ports = @splat(null);
     return ag;
 }
 
@@ -156,7 +161,7 @@ pub fn execInstructions(
         switch (instruction.tag) {
             .mk_agent => |id| {
                 const ag = try c.local_ctx.allocOneAgent();
-                ag.* = .{ .id = id, .ports = @splat(null) };
+                ag.* = .{ .id = id };
                 c.registers[instruction.operand1] = .{ .agent = ag };
             },
             .mk_special => |special| {
@@ -181,13 +186,13 @@ pub fn execInstructions(
                 const larity = c.runtime.agent_arities.arityOf(lagent.id);
                 var idx: u16 = 0;
                 for (0..larity) |port_idx| {
-                    c.registers[idx] = lagent.ports[port_idx].?;
+                    c.registers[idx] = lagent.ports[port_idx];
                     idx += 1;
                 }
                 if (!wildcarded) {
                     const rarity = c.runtime.agent_arities.arityOf(ragent.id);
                     for (0..rarity) |port_idx| {
-                        c.registers[idx] = ragent.ports[port_idx].?;
+                        c.registers[idx] = ragent.ports[port_idx];
                         idx += 1;
                     }
                 } else {

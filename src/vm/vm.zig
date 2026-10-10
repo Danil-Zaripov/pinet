@@ -92,18 +92,18 @@ pub const GlobalCtx = struct {
     }
 
     fn equationFetcherInit(gpa: std.mem.Allocator) !EquationFetcher {
-        const FetcherType = EquationFetcher.TwoDequeEquationFetcher;
-        const two_deque_equation_fetcher = try gpa.create(FetcherType);
-        two_deque_equation_fetcher.* = .init(gpa);
+        const FetcherType = EquationFetcher.ThreeDequeEquationFetcher;
+        const three_deque_equation_fetcher = try gpa.create(FetcherType);
+        three_deque_equation_fetcher.* = .init(gpa);
 
-        return two_deque_equation_fetcher.equationFetcher();
+        return three_deque_equation_fetcher.equationFetcher();
     }
 
     fn equationFetcherDeinit(equation_fetcher: EquationFetcher, gpa: std.mem.Allocator) void {
-        const FetcherType = EquationFetcher.TwoDequeEquationFetcher;
-        const two_deque_equation_fetcher: *FetcherType = @ptrCast(@alignCast(equation_fetcher.ptr));
-        two_deque_equation_fetcher.deinit();
-        gpa.destroy(two_deque_equation_fetcher);
+        const FetcherType = EquationFetcher.ThreeDequeEquationFetcher;
+        const three_deque_equation_fetcher: *FetcherType = @ptrCast(@alignCast(equation_fetcher.ptr));
+        three_deque_equation_fetcher.deinit();
+        gpa.destroy(three_deque_equation_fetcher);
     }
 
     fn getHeapUser(comptime T: type, heap: Memory.Heap(T), gpa: std.mem.Allocator) Memory.Heap(T) {
@@ -120,7 +120,7 @@ pub const GlobalCtx = struct {
 
     fn getFetcherUser(fetcher: EquationFetcher, gpa: std.mem.Allocator) EquationFetcher {
         _ = gpa;
-        const Concrete = EquationFetcher.TwoDequeEquationFetcher;
+        const Concrete = EquationFetcher.ThreeDequeEquationFetcher;
         if (@hasDecl(Concrete, getUser)) {
             const concrete: *Concrete = @ptrCast(@alignCast(fetcher.ptr));
             return concrete.getUser();
@@ -306,7 +306,7 @@ fn objToValueNumber(agent_heap: Memory.Heap(Agent), num: AST.Object) !Value {
     const agent_id = Builtin.BuiltinNameMap.get(Builtin.number_builtin_ident).?;
     const agent = try agent_heap.allocOne();
 
-    agent.* = .{ .id = agent_id, .ports = @splat(null) };
+    agent.* = .{ .id = agent_id };
     agent.ports[0] = Value{ .special = numtype };
 
     return .{ .agent = agent };
@@ -318,7 +318,7 @@ fn objToValueAgent(self: *Self, obj: AST.Object) anyerror!Value {
     const arity = try self.runtime.agent_arities.get(agent_id, portlist.len);
     const agent = try self.global_ctx.agent_heap.allocOne();
 
-    agent.* = .{ .id = agent_id, .ports = @splat(null) };
+    agent.* = .{ .id = agent_id };
     {
         var idx: u8 = 0;
         while (idx < arity) : (idx += 1) {
